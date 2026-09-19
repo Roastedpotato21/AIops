@@ -10,10 +10,11 @@ COPY apps/order-service/order_service /app/order-service/order_service
 COPY apps/payment-service/payment_service /app/payment-service/payment_service
 COPY apps/inventory-service/inventory_service /app/inventory-service/inventory_service
 COPY apps/load-generator/load_generator /app/load-generator/load_generator
+COPY apps/telemetry/aiops_telemetry /app/telemetry/aiops_telemetry
 
 RUN useradd --create-home --uid 10001 demo
 USER 10001:10001
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app/order-service:/app/payment-service:/app/inventory-service:/app/load-generator" \
+    PYTHONPATH="/app/telemetry:/app/order-service:/app/payment-service:/app/inventory-service:/app/load-generator" \
     PYTHONUNBUFFERED=1

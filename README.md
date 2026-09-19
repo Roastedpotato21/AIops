@@ -1,6 +1,6 @@
 # AIOps platform
 
-Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order → Payment → Inventory—and a profile-only load generator. OpenTelemetry application instrumentation remains deliberately absent until Phase 3.
+Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order calls Payment and then Inventory—and a profile-only load generator. Phase 3 adds real OpenTelemetry tracing, correlated JSON logs, and native request metrics to those services.
 
 ## Prerequisites
 
@@ -61,3 +61,19 @@ Run focused Phase 2 tests:
 `uv run --project apps ruff check apps`
 
 `uv run --project apps pytest -c apps/pyproject.toml apps/tests`
+
+## Phase 3 telemetry
+
+The three services export OTLP/gRPC to the existing Collector at `otel-collector:4317`. Resource identity is configured with `OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAMESPACE`, `SERVICE_VERSION`, and `DEPLOYMENT_ENVIRONMENT`. The native application metrics are:
+
+- `demo.http.server.requests`: completed business-route requests, unit `{request}`.
+- `demo.http.server.errors`: completed business-route requests with a 5xx response, unit `{request}`.
+- `demo.http.server.duration`: business-route duration histogram, unit `ms`.
+
+Health, documentation, and `/__faults` routes are excluded from these application metrics.
+
+After generating a normal order, use the bounded read-only inspector to verify a connected trace, correlated logs, and persisted metrics. `PHASE3_TRACE_ID` is optional; when omitted, the inspector selects the newest real `demo-shop` Order trace:
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm --no-deps --entrypoint python compatibility-probe scripts/inspect_phase3.py`
+
+The inspector prints only selected telemetry evidence and never prints OpenSearch credentials or request payloads.

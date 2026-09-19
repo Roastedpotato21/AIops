@@ -159,13 +159,20 @@ services:
     restart: unless-stopped
 
   payment-service:
-    image: aiops-demo-apps:phase2
+    image: aiops-demo-apps:phase3
     build: *demo-build
     command: ["uvicorn", "payment_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       APP_ENVIRONMENT: development
       FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
       FAULT_MAX_DURATION_SECONDS: ${FAULT_MAX_DURATION_SECONDS:-60}
+      TELEMETRY_ENABLED: "true"
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-demo-shop}
+      SERVICE_VERSION: ${DEMO_SERVICE_VERSION:-0.3.0}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     expose: ["8000"]
     networks: [telemetry]
     healthcheck:
@@ -177,13 +184,20 @@ services:
     restart: unless-stopped
 
   inventory-service:
-    image: aiops-demo-apps:phase2
+    image: aiops-demo-apps:phase3
     build: *demo-build
     command: ["uvicorn", "inventory_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       APP_ENVIRONMENT: development
       FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
       FAULT_MAX_DURATION_SECONDS: ${FAULT_MAX_DURATION_SECONDS:-60}
+      TELEMETRY_ENABLED: "true"
+      OTEL_SERVICE_NAME: inventory-service
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-demo-shop}
+      SERVICE_VERSION: ${DEMO_SERVICE_VERSION:-0.3.0}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     expose: ["8000"]
     networks: [telemetry]
     healthcheck:
@@ -195,13 +209,20 @@ services:
     restart: unless-stopped
 
   order-service:
-    image: aiops-demo-apps:phase2
+    image: aiops-demo-apps:phase3
     build: *demo-build
     command: ["uvicorn", "order_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       PAYMENT_SERVICE_URL: http://payment-service:8000
       INVENTORY_SERVICE_URL: http://inventory-service:8000
       HTTP_TIMEOUT_SECONDS: ${DEMO_HTTP_TIMEOUT_SECONDS:-2}
+      TELEMETRY_ENABLED: "true"
+      OTEL_SERVICE_NAME: order-service
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-demo-shop}
+      SERVICE_VERSION: ${DEMO_SERVICE_VERSION:-0.3.0}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-development}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     expose: ["8000"]
     depends_on:
       payment-service:
@@ -219,7 +240,7 @@ services:
 
   load-generator:
     profiles: [load]
-    image: aiops-demo-apps:phase2
+    image: aiops-demo-apps:phase3
     build: *demo-build
     command: ["python", "-m", "load_generator.main"]
     environment:

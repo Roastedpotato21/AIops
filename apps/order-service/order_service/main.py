@@ -1,8 +1,12 @@
 import re
+from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import uuid4
 
 import httpx
+from aiops_telemetry import TelemetryRuntime, TelemetrySettings, configure_telemetry
+from aiops_telemetry.config import load_telemetry_settings
+from aiops_telemetry.runtime import instrument_fastapi
 from fastapi import FastAPI, Header, HTTPException, Response
 from pydantic import ValidationError
 
@@ -33,9 +37,24 @@ def _downstream_failure(code: str, message: str, status_code: int = 502) -> HTTP
 def create_app(
     settings: OrderSettings | None = None,
     http_client: httpx.AsyncClient | None = None,
+    telemetry_runtime: TelemetryRuntime | None = None,
+    telemetry_settings: TelemetrySettings | None = None,
 ) -> FastAPI:
     resolved = settings or get_settings()
-    application = FastAPI(title="AIOps Demo Order Service", version="0.2.0")
+    telemetry = telemetry_runtime or configure_telemetry(
+        telemetry_settings or load_telemetry_settings("order-service")
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        yield
+        telemetry.shutdown()
+
+    if http_client is not None:
+        telemetry.instrument_httpx_client(http_client)
+    application = FastAPI(
+        title="AIOps Demo Order Service", version="0.2.0", lifespan=lifespan
+    )
 
     @application.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
@@ -53,16 +72,29 @@ def create_app(
                 timeout=resolved.http_timeout_seconds,
             )
         except httpx.TimeoutException as exc:
+            telemetry.logger.error(
+                "order.payment.timeout", extra={"event": "order.payment.timeout"}
+            )
             raise _downstream_failure(
                 "payment_timeout", "Payment service timed out", status_code=504
             ) from exc
         except httpx.RequestError as exc:
+            telemetry.logger.error(
+                "order.payment.unavailable", extra={"event": "order.payment.unavailable"}
+            )
             raise _downstream_failure("payment_unavailable", "Payment service unavailable") from exc
         if not payment_http.is_success:
+            telemetry.logger.error(
+                "order.payment.failed", extra={"event": "order.payment.failed"}
+            )
             raise _downstream_failure("payment_failed", "Payment service rejected the order")
         try:
             payment = PaymentResponse.model_validate(payment_http.json())
         except (ValueError, ValidationError) as exc:
+            telemetry.logger.error(
+                "order.payment.invalid_response",
+                extra={"event": "order.payment.invalid_response"},
+            )
             raise _downstream_failure(
                 "payment_invalid_response", "Payment response was invalid"
             ) from exc
@@ -75,29 +107,45 @@ def create_app(
                 timeout=resolved.http_timeout_seconds,
             )
         except httpx.TimeoutException as exc:
+            telemetry.logger.error(
+                "order.inventory.timeout", extra={"event": "order.inventory.timeout"}
+            )
             raise _downstream_failure(
                 "inventory_timeout", "Inventory service timed out", status_code=504
             ) from exc
         except httpx.RequestError as exc:
+            telemetry.logger.error(
+                "order.inventory.unavailable",
+                extra={"event": "order.inventory.unavailable"},
+            )
             raise _downstream_failure(
                 "inventory_unavailable", "Inventory service unavailable"
             ) from exc
         if not inventory_http.is_success:
+            telemetry.logger.error(
+                "order.inventory.failed", extra={"event": "order.inventory.failed"}
+            )
             raise _downstream_failure(
                 "inventory_failed", "Inventory service could not reserve the order"
             )
         try:
             inventory = InventoryResponse.model_validate(inventory_http.json())
         except (ValueError, ValidationError) as exc:
+            telemetry.logger.error(
+                "order.inventory.invalid_response",
+                extra={"event": "order.inventory.invalid_response"},
+            )
             raise _downstream_failure(
                 "inventory_invalid_response", "Inventory response was invalid"
             ) from exc
 
-        return OrderResponse(
+        result = OrderResponse(
             order_id=str(uuid4()),
             payment_id=payment.payment_id,
             reservation_id=inventory.reservation_id,
         )
+        telemetry.logger.info("order.completed", extra={"event": "order.completed"})
+        return result
 
     @application.post("/orders", response_model=OrderResponse)
     async def create_order(
@@ -110,8 +158,10 @@ def create_app(
         if http_client is not None:
             return await submit_order(request, http_client, request_id)
         async with httpx.AsyncClient() as client:
+            telemetry.instrument_httpx_client(client)
             return await submit_order(request, client, request_id)
 
+    instrument_fastapi(application, telemetry, {"/orders"})
     return application
 
 

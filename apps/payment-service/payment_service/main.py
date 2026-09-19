@@ -1,5 +1,9 @@
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
+from aiops_telemetry import TelemetryRuntime, TelemetrySettings, configure_telemetry
+from aiops_telemetry.config import load_telemetry_settings
+from aiops_telemetry.runtime import instrument_fastapi
 from fastapi import APIRouter, FastAPI, HTTPException
 
 from payment_service.config import PaymentSettings, get_settings
@@ -16,10 +20,23 @@ from payment_service.models import (
 def create_app(
     settings: PaymentSettings | None = None,
     fault_controller: FaultController | None = None,
+    telemetry_runtime: TelemetryRuntime | None = None,
+    telemetry_settings: TelemetrySettings | None = None,
 ) -> FastAPI:
     resolved = settings or get_settings()
     faults = fault_controller or FaultController()
-    application = FastAPI(title="AIOps Demo Payment Service", version="0.2.0")
+    telemetry = telemetry_runtime or configure_telemetry(
+        telemetry_settings or load_telemetry_settings("payment-service")
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        yield
+        telemetry.shutdown()
+
+    application = FastAPI(
+        title="AIOps Demo Payment Service", version="0.2.0", lifespan=lifespan
+    )
 
     @application.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
@@ -30,7 +47,9 @@ def create_app(
         del request
         action = await faults.apply()
         if action == "errors":
+            telemetry.logger.error("payment.failed", extra={"event": "payment.failed"})
             raise HTTPException(status_code=500, detail="Payment unavailable")
+        telemetry.logger.info("payment.completed", extra={"event": "payment.completed"})
         return PaymentResponse(payment_id=str(uuid4()))
 
     if resolved.faults_allowed:
@@ -47,6 +66,7 @@ def create_app(
 
         application.include_router(fault_router)
 
+    instrument_fastapi(application, telemetry, {"/payments"})
     return application
 
 

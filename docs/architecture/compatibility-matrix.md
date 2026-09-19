@@ -11,5 +11,7 @@ Verified on 2026-09-19 against the local Docker Compose stack. Image references 
 | Python | 3.12.12-slim | `sha256:f3fa41d74a768c2fce8016b98c191ae8c1bacd8f1152870a3f9f87d350920b7c` | [Python official image](https://hub.docker.com/_/python) | API and probe images built and ran. |
 | uv | 0.11.18 | `sha256:78bc42400d77b0678ba95765305c826652ed5431f399257271dda681d0318f03` | [uv 0.11.18 release](https://github.com/astral-sh/uv/releases/tag/0.11.18) | Frozen backend environment installed. |
 | Node.js | 24.21.0-alpine | `sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1` | [Node.js v24.21.0 release](https://github.com/nodejs/node/releases/tag/v24.21.0) | Frontend image built and shell served. |
+| OpenTelemetry Python API/SDK/exporters | 1.44.0 | `apps/uv.lock` | [OpenTelemetry Python v1.44.0](https://github.com/open-telemetry/opentelemetry-python/releases/tag/v1.44.0) | Real traces, logs, and metrics exported through the Collector and persisted. |
+| OpenTelemetry Python instrumentation/semantic conventions | 0.65b0 | `apps/uv.lock` | [OpenTelemetry Python Contrib v0.65b0](https://github.com/open-telemetry/opentelemetry-python-contrib/releases/tag/v0.65b0) | FastAPI and HTTPX propagation verified across all three containers. |
 
 The deadline-reduced gate did not repeat the authenticated plugin inventory. Prior configuration creates no detector. Plugin inventory verification is deferred to Phase 9 hardening.
