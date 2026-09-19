@@ -18,6 +18,47 @@ async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs) -
     return response
 
 
+async def ensure_read_alias(
+    client: httpx.AsyncClient,
+    *,
+    template_name: str,
+    index_pattern: str,
+    alias: str,
+) -> None:
+    await request(
+        client,
+        "PUT",
+        f"/_template/{template_name}",
+        json={
+            "order": 100,
+            "index_patterns": [index_pattern],
+            "aliases": {alias: {}},
+        },
+    )
+    response = await request(
+        client,
+        "GET",
+        f"/_cat/indices/{index_pattern}?format=json&h=index",
+    )
+    indices = sorted(
+        item["index"]
+        for item in response.json()
+        if isinstance(item, dict) and isinstance(item.get("index"), str)
+    )
+    if indices:
+        await request(
+            client,
+            "POST",
+            "/_aliases",
+            json={
+                "actions": [
+                    {"add": {"index": index_name, "alias": alias}}
+                    for index_name in indices
+                ]
+            },
+        )
+
+
 async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, auth=ADMIN, verify=False, timeout=10.0) as client:
         span_template = json.loads(SPAN_TEMPLATE.read_text(encoding="utf-8"))
@@ -57,6 +98,19 @@ async def main() -> None:
             raise RuntimeError(
                 f"Native trace alias inspection failed with {alias_response.status_code}"
             )
+
+        await ensure_read_alias(
+            client,
+            template_name="aiops-logs-read-alias-v1",
+            index_pattern="aiops-logs-*",
+            alias="aiops-logs",
+        )
+        await ensure_read_alias(
+            client,
+            template_name="aiops-metrics-read-alias-v1",
+            index_pattern="aiops-metrics-raw-*",
+            alias="aiops-metrics-raw",
+        )
 
         await request(
             client,
@@ -114,7 +168,13 @@ async def main() -> None:
                 "cluster_permissions": ["cluster_monitor"],
                 "index_permissions": [
                     {
-                        "index_patterns": ["aiops-worker-state-v1"],
+                        "index_patterns": [
+                            "aiops-worker-state-v1",
+                            "aiops-logs*",
+                            "aiops-metrics-raw*",
+                            "otel-v1-apm-span*",
+                            "otel-v1-apm-service-map*",
+                        ],
                         "allowed_actions": ["read"],
                     }
                 ],

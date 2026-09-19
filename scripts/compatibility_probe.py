@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import SpanKind
 
 OTLP_ENDPOINT = os.environ.get("OTLP_ENDPOINT", "otel-collector:4317")
@@ -48,11 +50,32 @@ def span_name(service: str, run_id: str) -> str:
     return f"compatibility-probe {run_id} POST {ROUTES[service]}"
 
 
-def emit(run_id: str) -> None:
+class FixedIdGenerator(IdGenerator):
+    def __init__(self, run_id: str, service: str) -> None:
+        self._trace_id = int(hashlib.sha256(f"{run_id}:trace".encode()).hexdigest()[:32], 16)
+        self._span_id = int(
+            hashlib.sha256(f"{run_id}:{service}:span".encode()).hexdigest()[:16],
+            16,
+        )
+
+    def generate_span_id(self) -> int:
+        return self._span_id
+
+    def generate_trace_id(self) -> int:
+        return self._trace_id
+
+
+def emit(run_id: str, *, deterministic_ids: bool = False) -> None:
     providers: list[TracerProvider] = []
     tracers = []
     for service in SERVICES:
-        provider = TracerProvider(resource=resource(service, run_id))
+        if deterministic_ids:
+            provider = TracerProvider(
+                resource=resource(service, run_id),
+                id_generator=FixedIdGenerator(run_id, service),
+            )
+        else:
+            provider = TracerProvider(resource=resource(service, run_id))
         provider.add_span_processor(
             BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True))
         )
@@ -275,10 +298,16 @@ def metric_evidence(metrics: list[dict]) -> list[dict]:
 def main() -> None:
     if not 1 <= DEADLINE <= 300:
         raise SystemExit("PROBE_DEADLINE_SECONDS must be between 1 and 300")
-    run_id = uuid.uuid4().hex
+    run_id = os.environ.get("PROBE_RUN_ID", uuid.uuid4().hex)
+    emit_count = int(os.environ.get("PROBE_EMIT_COUNT", "1"))
+    if len(run_id) != 32 or any(character not in "0123456789abcdef" for character in run_id):
+        raise SystemExit("PROBE_RUN_ID must contain exactly 32 lowercase hexadecimal characters")
+    if emit_count not in (1, 2):
+        raise SystemExit("PROBE_EMIT_COUNT must be 1 or 2")
     started = time.monotonic()
     print(f"Compatibility probe run_id={run_id}")
-    emit(run_id)
+    for _ in range(emit_count):
+        emit(run_id, deterministic_ids=emit_count == 2)
     deadline = started + DEADLINE
     result: dict[str, object] = {"run_id": run_id, "checks": {}}
     with httpx.Client(base_url=OPENSEARCH_URL, auth=AUTH, verify=False, timeout=10.0) as client:

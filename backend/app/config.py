@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     opensearch_ca_file: str | None = None
     bootstrap_index: str = "aiops-worker-state-v1"
     bootstrap_document_id: str = "platform-bootstrap-v1"
+    logs_read_alias: str = "aiops-logs"
+    spans_read_alias: str = "otel-v1-apm-span"
+    metrics_read_alias: str = "aiops-metrics-raw"
+    service_map_read_alias: str = "otel-v1-apm-service-map"
+    opensearch_query_timeout_seconds: float = Field(default=5.0, gt=0, le=10)
     frontend_origin: str = "http://127.0.0.1:4173"
 
     @model_validator(mode="after")

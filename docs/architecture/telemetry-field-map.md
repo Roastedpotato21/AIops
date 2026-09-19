@@ -42,3 +42,40 @@ Observed from normal application trace `a5cdbbf1d53016d9dbf9a3d8f8f52be1` on 202
 | Metric | duration | `name`, `count`, `sum`, `buckets[]`, `unit` | `demo.http.server.duration`, HISTOGRAM, `ms` |
 
 The application emits the current stable semantic-convention key `deployment.environment.name`. This also preserves compatibility with the object mapping established by the Phase 1 probe; the older scalar `deployment.environment` cannot coexist at the same OpenSearch path.
+
+## Phase 4 normalized read boundary
+
+Verified on 2026-09-19 with real application trace
+c62ddd3134b7c94f57644b32ce223696. Product code reads the normalized models in
+backend/app/models/telemetry.py through TelemetryRepository; the raw paths
+below are private adapter inputs.
+
+| Normalized value | Native persisted path |
+|---|---|
+| service namespace | resource.attributes.service.namespace |
+| deployment environment | resource.attributes.deployment.environment.name |
+| service name / instance / version | resource.attributes.service.name, resource.attributes.service.instance.id, resource.attributes.service.version |
+| trace / span / parent identity | traceId, spanId, parentSpanId |
+| span operation / kind | name, kind |
+| span start / completion | startTime, endTime |
+| span duration | durationInNanos |
+| span status | status.code, attributes.http.status_code, or attributes.http.response.status_code |
+| log event / severity / correlation | time, observedTimestamp, body, severityText, traceId, spanId |
+| metric identity / sample time | name, kind, unit, time, startTime |
+| sum semantics | value, isMonotonic, aggregationTemporality |
+| histogram semantics | count, sum, min, max, explicitBounds, bucketCountsList, buckets[] |
+| native dependency source | serviceName |
+| native dependency target | destination.domain, destination.resource |
+| native dependency span kind / group | kind, traceGroupName, hashId |
+
+The real native service map contains order-service → payment-service with
+destination resource POST /payments and order-service → inventory-service
+with destination resource POST /reserve, both under trace group POST /orders.
+
+The native service-map documents contain no timestamp, trace ID, namespace, or
+environment. A stale synthetic payment-service → inventory-service document
+can therefore coexist under the same trace-group name and cannot be safely
+assigned to a real application window. get_service_dependencies consequently
+reconstructs bounded, namespace-aware edges from normalized CLIENT→SERVER
+parent links. Native service-map documents remain compatibility evidence, not
+the source of windowed product dependency queries.
