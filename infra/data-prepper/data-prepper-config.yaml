@@ -1,0 +1,5 @@
+ssl: false
+serverPort: 4900
+peer_forwarder:
+  discovery_mode: local_node
+  ssl: false

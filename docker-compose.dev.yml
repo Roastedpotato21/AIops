@@ -1,0 +1,10 @@
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+  frontend:
+    ports:
+      - "127.0.0.1:4173:4173"
+  opensearch-dashboards:
+    ports:
+      - "127.0.0.1:5601:5601"

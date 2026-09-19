@@ -1,0 +1,7 @@
+# Reference-only Phase 1 settings. The Docker image's generated configuration
+# remains authoritative so its local security demo certificates are installed.
+# Runtime settings are provided through docker-compose.yml environment values.
+cluster.name: aiops-local
+node.name: aiops-opensearch
+discovery.type: single-node
+bootstrap.memory_lock: true

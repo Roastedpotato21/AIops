@@ -1,0 +1,78 @@
+version: "2"
+
+otel-entry:
+  source:
+    otlp:
+      port: 21893
+      ssl: false
+      authentication:
+        unauthenticated:
+  route:
+    - traces: 'getEventType() == "TRACE"'
+    - logs: 'getEventType() == "LOG"'
+    - metrics: 'getEventType() == "METRIC"'
+  sink:
+    - pipeline:
+        name: traces-raw
+        routes: [traces]
+    - pipeline:
+        name: service-map
+        routes: [traces]
+    - pipeline:
+        name: metrics
+        routes: [metrics]
+    - opensearch:
+        routes: [logs]
+        hosts: ["https://opensearch:9200"]
+        username: __DP_USERNAME__
+        password: __DP_PASSWORD__
+        insecure: true
+        index: aiops-logs-%{yyyy.MM.dd}
+
+traces-raw:
+  source:
+    pipeline:
+      name: otel-entry
+  processor:
+    - otel_traces:
+        trace_flush_interval: 10
+  sink:
+    - opensearch:
+        hosts: ["https://opensearch:9200"]
+        username: __DP_USERNAME__
+        password: __DP_PASSWORD__
+        insecure: true
+        index_type: trace-analytics-plain-raw
+
+service-map:
+  source:
+    pipeline:
+      name: otel-entry
+  processor:
+    - service_map:
+        window_duration: 60
+  sink:
+    - opensearch:
+        hosts: ["https://opensearch:9200"]
+        username: __DP_USERNAME__
+        password: __DP_PASSWORD__
+        insecure: true
+        index_type: trace-analytics-service-map
+
+metrics:
+  source:
+    pipeline:
+      name: otel-entry
+  processor:
+    - otel_metrics:
+        calculate_histogram_buckets: true
+        calculate_exponential_histogram_buckets: true
+        exponential_histogram_max_allowed_scale: 10
+        flatten_attributes: false
+  sink:
+    - opensearch:
+        hosts: ["https://opensearch:9200"]
+        username: __DP_USERNAME__
+        password: __DP_PASSWORD__
+        insecure: true
+        index: aiops-metrics-raw-%{yyyy.MM.dd}

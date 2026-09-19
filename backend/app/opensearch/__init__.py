@@ -1,0 +1,1 @@
+"""OpenSearch transport boundary."""

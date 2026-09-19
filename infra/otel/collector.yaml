@@ -1,0 +1,57 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+  batch:
+    send_batch_size: 256
+    timeout: 1s
+
+exporters:
+  otlp_grpc/data-prepper:
+    endpoint: data-prepper:21893
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 5000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 300s
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol/storage
+    create_directory: true
+
+service:
+  extensions: [health_check, file_storage]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/data-prepper]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/data-prepper]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/data-prepper]

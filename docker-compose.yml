@@ -1,0 +1,187 @@
+name: aiops
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD in ignored .env}
+      OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks: [storage]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -ksSf -u admin:$$OPENSEARCH_INITIAL_ADMIN_PASSWORD https://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+    restart: unless-stopped
+
+  bootstrap:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "scripts/bootstrap.py"]
+    environment:
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+      OPENSEARCH_API_USERNAME: ${OPENSEARCH_API_USERNAME:-aiops-api}
+      OPENSEARCH_API_PASSWORD: ${OPENSEARCH_API_PASSWORD:?Set OPENSEARCH_API_PASSWORD}
+      OPENSEARCH_DATA_PREPPER_USERNAME: ${OPENSEARCH_DATA_PREPPER_USERNAME:-data-prepper}
+      OPENSEARCH_DATA_PREPPER_PASSWORD: ${OPENSEARCH_DATA_PREPPER_PASSWORD:?Set OPENSEARCH_DATA_PREPPER_PASSWORD}
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+
+  data-prepper:
+    image: opensearchproject/data-prepper:2.16.0@sha256:6e74ebeddfd66549f623e6f3b8131111b34e85695f54bd68aac7563e80d6b546
+    environment:
+      OPENSEARCH_DATA_PREPPER_USERNAME: ${OPENSEARCH_DATA_PREPPER_USERNAME:-data-prepper}
+      OPENSEARCH_DATA_PREPPER_PASSWORD: ${OPENSEARCH_DATA_PREPPER_PASSWORD:?Set OPENSEARCH_DATA_PREPPER_PASSWORD}
+      JAVA_OPTS: -Xms512m -Xmx512m
+    entrypoint: ["/bin/bash", "/opt/aiops/render-and-start.sh"]
+    volumes:
+      - ./infra/data-prepper/pipelines.yaml:/opt/aiops/pipelines.template.yaml:ro
+      - ./infra/data-prepper/render-and-start.sh:/opt/aiops/render-and-start.sh:ro
+      - ./infra/data-prepper/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+    tmpfs:
+      - /usr/share/data-prepper/pipelines:uid=1000,gid=1000,mode=0700
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [telemetry, storage]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4900/list >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+    restart: unless-stopped
+
+  collector-storage-init:
+    image: opensearchproject/data-prepper:2.16.0@sha256:6e74ebeddfd66549f623e6f3b8131111b34e85695f54bd68aac7563e80d6b546
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-euc"]
+    command: ["install -d -o 10001 -g 10001 -m 0700 /storage"]
+    volumes:
+      - otel-queue:/storage
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./infra/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-queue:/var/lib/otelcol/storage
+    depends_on:
+      data-prepper:
+        condition: service_healthy
+      collector-storage-init:
+        condition: service_completed_successfully
+    networks: [telemetry]
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.8.0@sha256:7fb7ec1b33f1ef49796dc31180f17f227361263c15bb19c56a8a6e5a38852bbd
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+      OPENSEARCH_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+      OPENSEARCH_SSL_VERIFICATIONMODE: none
+      SERVER_HOST: 0.0.0.0
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      AIOPS_ENVIRONMENT: development
+      AIOPS_BUILD_VERSION: phase1-foundation
+      AIOPS_OPENSEARCH_URL: https://opensearch:9200
+      AIOPS_OPENSEARCH_USERNAME: ${OPENSEARCH_API_USERNAME:-aiops-api}
+      AIOPS_OPENSEARCH_PASSWORD: ${OPENSEARCH_API_PASSWORD:?Set OPENSEARCH_API_PASSWORD}
+      AIOPS_OPENSEARCH_VERIFY_TLS: "false"
+      AIOPS_FRONTEND_ORIGIN: http://127.0.0.1:4173
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [edge, storage]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: http://127.0.0.1:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4173"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  compatibility-probe:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "scripts/compatibility_probe.py"]
+    environment:
+      OTLP_ENDPOINT: otel-collector:4317
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+      PROBE_DEADLINE_SECONDS: ${PROBE_DEADLINE_SECONDS:-180}
+      PROBE_ARTIFACT_DIR: /artifacts
+    volumes:
+      - ./artifacts:/artifacts
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    networks: [telemetry, storage]
+
+networks:
+  edge:
+    internal: false
+  telemetry:
+    internal: true
+  storage:
+    internal: true
+
+volumes:
+  opensearch-data:
+  otel-queue:
