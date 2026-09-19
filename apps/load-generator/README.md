@@ -1,3 +1,3 @@
-# Load generator placeholder
+# Load generator
 
-Owned by Phase 2. No runnable load or fault scenario exists in Phase 1.
+Profile-only asynchronous traffic harness for the Phase 2 demo chain. It supports `normal`, `payment-latency`, `payment-errors`, and `inventory-errors`. Scenario configuration is sent only to private development fault routes; order requests contain no scenario label.

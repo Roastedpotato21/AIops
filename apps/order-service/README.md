@@ -1,3 +1,3 @@
-# Order service placeholder
+# Order service
 
-Owned by Phase 2. No runnable service exists in Phase 1.
+FastAPI entrypoint for the controlled demo request chain. `POST /orders` calls Payment first and Inventory only after payment succeeds. Downstream URLs and the bounded timeout come exclusively from environment-backed settings.

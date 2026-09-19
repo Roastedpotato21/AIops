@@ -1,6 +1,6 @@
 # AIOps platform
 
-Phase 1 establishes the repository, a FastAPI health/readiness shell, a React/Vite status shell, and a local OpenTelemetry → Data Prepper → OpenSearch compatibility stack. Product services, detectors, incidents, agents, and dashboard features are deliberately absent.
+Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order → Payment → Inventory—and a profile-only load generator. OpenTelemetry application instrumentation remains deliberately absent until Phase 3.
 
 ## Prerequisites
 
@@ -39,3 +39,25 @@ Local endpoints are bound to loopback: API `http://127.0.0.1:8000`, frontend `ht
 OpenSearch uses its demo TLS certificate only for this local phase. The API explicitly allows certificate verification to be disabled only when `AIOPS_ENVIRONMENT=development`. Deployment TLS is Phase 10.
 
 Do not use `docker compose down -v` for ordinary work: it deletes the persistent OpenSearch and Collector queue volumes.
+
+## Phase 2 demo traffic
+
+Build and start the three private demo services:
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml build order-service payment-service inventory-service load-generator`
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d payment-service inventory-service order-service`
+
+Run bounded normal traffic without leaving a background generator:
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile load run --rm -e LOAD_DURATION_SECONDS=10 -e LOAD_REQUESTS_PER_SECOND=2 load-generator`
+
+Fault routes are absent by default. For local demo fault checks, set `FAULT_INJECTION_ENABLED=true`, recreate Payment and Inventory, then select one of `payment-latency`, `payment-errors`, or `inventory-errors` with `LOAD_SCENARIO`. Every fault request has a bounded duration and automatically ceases to affect requests at expiry. Do not enable faults in production.
+
+Run focused Phase 2 tests:
+
+`uv sync --project apps --frozen --all-extras`
+
+`uv run --project apps ruff check apps`
+
+`uv run --project apps pytest -c apps/pyproject.toml apps/tests`

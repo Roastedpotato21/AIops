@@ -1,5 +1,9 @@
 name: aiops
 
+x-demo-build: &demo-build
+  context: .
+  dockerfile: apps/Dockerfile
+
 services:
   opensearch:
     image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
@@ -153,6 +157,90 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
+
+  payment-service:
+    image: aiops-demo-apps:phase2
+    build: *demo-build
+    command: ["uvicorn", "payment_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENVIRONMENT: development
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
+      FAULT_MAX_DURATION_SECONDS: ${FAULT_MAX_DURATION_SECONDS:-60}
+    expose: ["8000"]
+    networks: [telemetry]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  inventory-service:
+    image: aiops-demo-apps:phase2
+    build: *demo-build
+    command: ["uvicorn", "inventory_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENVIRONMENT: development
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
+      FAULT_MAX_DURATION_SECONDS: ${FAULT_MAX_DURATION_SECONDS:-60}
+    expose: ["8000"]
+    networks: [telemetry]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  order-service:
+    image: aiops-demo-apps:phase2
+    build: *demo-build
+    command: ["uvicorn", "order_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      HTTP_TIMEOUT_SECONDS: ${DEMO_HTTP_TIMEOUT_SECONDS:-2}
+    expose: ["8000"]
+    depends_on:
+      payment-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    networks: [telemetry]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  load-generator:
+    profiles: [load]
+    image: aiops-demo-apps:phase2
+    build: *demo-build
+    command: ["python", "-m", "load_generator.main"]
+    environment:
+      ORDER_SERVICE_URL: http://order-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      LOAD_REQUESTS_PER_SECOND: ${LOAD_REQUESTS_PER_SECOND:-2}
+      LOAD_DURATION_SECONDS: ${LOAD_DURATION_SECONDS:-30}
+      LOAD_HTTP_TIMEOUT_SECONDS: ${LOAD_HTTP_TIMEOUT_SECONDS:-3}
+      LOAD_SCENARIO: ${LOAD_SCENARIO:-normal}
+      FAULT_DURATION_SECONDS: ${FAULT_DURATION_SECONDS:-10}
+      FAULT_LATENCY_MS: ${FAULT_LATENCY_MS:-750}
+    depends_on:
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    networks: [telemetry]
+    restart: "no"
 
   compatibility-probe:
     profiles: [tools]
