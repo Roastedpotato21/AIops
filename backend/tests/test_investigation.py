@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -9,7 +10,11 @@ from pydantic import ValidationError
 from test_incidents import NOW, MemoryRepository, anomaly, setup_data, stamp
 
 from app.agent.investigator import Investigator
-from app.agent.providers import DeterministicTestProvider
+from app.agent.providers import (
+    DeterministicDevelopmentProvider,
+    DeterministicTestProvider,
+    UnavailableProvider,
+)
 from app.agent.scheduling import InvestigationScheduler, SchedulingConflict
 from app.agent.tools import ToolBudgetExceeded, ToolRegistry
 from app.api.investigations import router as investigation_router
@@ -19,6 +24,7 @@ from app.models.incidents import Provenance, QueryParameters
 from app.models.investigation import (
     EvidenceClaim,
     GenerationResponse,
+    IncidentToolView,
     InvestigationBudget,
     InvestigationCreate,
     InvestigationReport,
@@ -31,7 +37,7 @@ from app.models.investigation import (
     ToolContext,
     ToolResponse,
 )
-from app.workers.investigations import run_once
+from app.workers.investigations import provider_from_settings, run_once
 
 
 class Settings:
@@ -360,6 +366,62 @@ async def test_fake_provider_orchestration_validates_evidence_and_fixture_proven
     assert outcome.report is not None
     assert outcome.executions[0].status == "partial"
     assert any("fixture" in item.lower() for item in outcome.report.limitations)
+
+
+@pytest.mark.asyncio
+async def test_development_provider_uses_one_read_only_tool_and_abstains_from_causality():
+    _, incident, bundle, items = await phase7_fixture()
+    tool_response = ToolResponse(
+        call_id=uuid4(),
+        status="ok",
+        result=IncidentToolView(
+            incident=incident,
+            bundle=bundle,
+            evidence_ids=bundle.evidence_ids,
+        ),
+        failure=None,
+        provenance=provenance(incident, bundle),
+        quality_reasons=[],
+        evidence_ids=bundle.evidence_ids,
+    )
+    request = InvestigationRequest(
+        job_id=deterministic_id("inv", ["phase9-development-provider"]),
+        incident=incident,
+        bundle=bundle,
+        initial_evidence=items,
+        context=context(incident, bundle, bundle.evidence_ids),
+        budget=InvestigationBudget(),
+    )
+    outcome = await Investigator().investigate(
+        request,
+        ToolRegistry(StaticBackend(tool_response)),
+        DeterministicDevelopmentProvider(),
+    )
+    assert outcome.failure is None and outcome.report is not None
+    assert [item.tool_name for item in outcome.executions] == ["get_incident"]
+    assert outcome.report.completion_status == "insufficient_evidence"
+    assert outcome.report.suspected_root_service is None
+    assert outcome.report.suggested_remediation == []
+    limitations = " ".join(outcome.report.limitations).lower()
+    assert "deterministic development provider" in limitations
+    assert "fixture" in limitations
+
+
+def test_development_provider_requires_all_three_runtime_guards():
+    enabled = SimpleNamespace(
+        llm_provider="deterministic",
+        environment="development",
+        allow_development_fixtures=True,
+        llm_api_key=None,
+    )
+    assert isinstance(provider_from_settings(enabled), DeterministicDevelopmentProvider)
+    for changed in (
+        {"environment": "production"},
+        {"allow_development_fixtures": False},
+        {"llm_provider": "disabled"},
+    ):
+        values = vars(enabled) | changed
+        assert isinstance(provider_from_settings(SimpleNamespace(**values)), UnavailableProvider)
 
 
 @pytest.mark.asyncio

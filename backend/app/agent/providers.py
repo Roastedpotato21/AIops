@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Sequence
 from typing import Protocol
 from uuid import NAMESPACE_URL, uuid5
@@ -8,8 +9,11 @@ from pydantic import SecretStr, ValidationError
 
 from app.models.detection import Failure
 from app.models.investigation import (
+    EvidenceClaim,
     GenerationRequest,
     GenerationResponse,
+    GetIncidentParams,
+    IncidentToolView,
     InvestigationReport,
     ProviderUsage,
     TextMessage,
@@ -45,6 +49,86 @@ class DeterministicTestProvider:
                 usage=ProviderUsage(input_tokens=0, output_tokens=0),
             )
         return self._responses.pop(0)
+
+
+class DeterministicDevelopmentProvider:
+    """Credential-free provider for explicit development fixture validation only."""
+
+    provider_id = "deterministic-development"
+    _incident_pattern = re.compile(r"incident_[0-9a-f]{64}")
+
+    async def generate(self, request: GenerationRequest) -> GenerationResponse:
+        tool_result = next(
+            (
+                message
+                for message in reversed(request.messages)
+                if isinstance(message, ToolResultMessage)
+            ),
+            None,
+        )
+        if tool_result is None:
+            incident_id = self._incident_id(request)
+            if incident_id is None:
+                return _provider_failure("Deterministic provider could not identify the incident")
+            return GenerationResponse(
+                kind="tool_requests",
+                tool_calls=[
+                    ToolCall(
+                        call_id=uuid5(NAMESPACE_URL, f"phase9-get-incident:{incident_id}"),
+                        name="get_incident",
+                        arguments=GetIncidentParams(incident_id=incident_id),
+                    )
+                ],
+                usage=ProviderUsage(input_tokens=0, output_tokens=0),
+            )
+
+        view = tool_result.response.result
+        if tool_result.response.status == "error" or not isinstance(view, IncidentToolView):
+            return _provider_failure("Pinned incident evidence could not be read")
+        evidence_id = view.evidence_ids[0] if view.evidence_ids else None
+        if evidence_id is None:
+            return _provider_failure("Pinned incident bundle contains no evidence")
+        claim = EvidenceClaim(
+            statement=(
+                "The persisted incident projection identifies "
+                f"{view.incident.primary_service.name} "
+                f"as affected by a {view.incident.feature} anomaly."
+            ),
+            evidence_ids=[evidence_id],
+        )
+        report = InvestigationReport(
+            summary=claim,
+            affected_services=view.incident.affected_services,
+            affected_service_claims=[claim],
+            suspected_root_service=None,
+            root_service_claim=None,
+            primary_hypothesis=None,
+            supporting_evidence_ids=[evidence_id],
+            contradicting_evidence=[],
+            alternative_explanations=[],
+            confidence="low",
+            confidence_rationale=(
+                "This credential-free development validation reads only the pinned incident "
+                "projection and does not infer causality."
+            ),
+            recommended_next_checks=[],
+            suggested_remediation=[],
+            missing_evidence=["Independent causal evidence was not requested in this validation"],
+            limitations=[
+                "Deterministic development provider; not output from an external reasoning model."
+            ],
+            completion_status="insufficient_evidence",
+            generated_at=view.bundle.created_at,
+        )
+        return GenerationResponse(kind="report", report=report, usage=ProviderUsage())
+
+    def _incident_id(self, request: GenerationRequest) -> str | None:
+        for message in request.messages:
+            if isinstance(message, TextMessage):
+                match = self._incident_pattern.search(message.text)
+                if match:
+                    return match.group(0)
+        return None
 
 
 class UnavailableProvider:

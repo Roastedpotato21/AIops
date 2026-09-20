@@ -51,6 +51,22 @@ services:
         condition: service_healthy
     networks: [storage]
 
+  phase9-fixture:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "scripts/seed_phase9_fixture.py"]
+    environment:
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+      ALLOW_DEVELOPMENT_FIXTURES: ${ALLOW_DEVELOPMENT_FIXTURES:-false}
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+
   aggregation-worker:
     build:
       context: .
@@ -118,6 +134,7 @@ services:
       AIOPS_OPENSEARCH_VERIFY_TLS: "false"
       AIOPS_LLM_PROVIDER: ${LLM_PROVIDER:-disabled}
       AIOPS_LLM_MODEL: ${LLM_MODEL:-configured-model}
+      AIOPS_ALLOW_DEVELOPMENT_FIXTURES: ${ALLOW_DEVELOPMENT_FIXTURES:-false}
       AIOPS_INVESTIGATION_POLL_SECONDS: ${INVESTIGATION_POLL_SECONDS:-5}
       AIOPS_INVESTIGATION_MAX_TOOL_CALLS: ${INVESTIGATION_MAX_TOOL_CALLS:-8}
       AIOPS_INVESTIGATION_DEADLINE_SECONDS: ${INVESTIGATION_DEADLINE_SECONDS:-60}

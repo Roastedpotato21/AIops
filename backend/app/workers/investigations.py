@@ -5,7 +5,12 @@ from datetime import UTC, datetime, timedelta
 
 from app.agent.backend import RepositoryToolBackend
 from app.agent.investigator import Investigator
-from app.agent.providers import OpenAIResponsesProvider, ReasoningProvider, UnavailableProvider
+from app.agent.providers import (
+    DeterministicDevelopmentProvider,
+    OpenAIResponsesProvider,
+    ReasoningProvider,
+    UnavailableProvider,
+)
 from app.agent.tools import ToolRegistry
 from app.config import Settings, get_settings
 from app.models.detection import Failure
@@ -85,6 +90,12 @@ async def run_once(
 
 
 def provider_from_settings(settings: Settings) -> ReasoningProvider:
+    if (
+        settings.llm_provider == "deterministic"
+        and settings.environment == "development"
+        and settings.allow_development_fixtures
+    ):
+        return DeterministicDevelopmentProvider()
     if settings.llm_provider == "openai" and settings.llm_api_key is not None:
         return OpenAIResponsesProvider(settings.llm_api_key)
     return UnavailableProvider()
