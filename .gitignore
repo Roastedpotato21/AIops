@@ -1,4 +1,11 @@
 .env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+docker-desktop-diagnostics*.zip
 .venv/
 apps/.venv/
 __pycache__/

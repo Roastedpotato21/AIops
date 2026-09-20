@@ -4,9 +4,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.dashboard import router
+from app.api.errors import install_error_handlers
 from app.detection.registry import registered_specs
 from app.models.detection import ServiceMetricBucket, TimeRange, deterministic_id
-from app.models.telemetry import QueryMetadata, TelemetryQueryResult
+from app.models.telemetry import (
+    QueryMetadata,
+    ServiceReference,
+    SourceDocument,
+    TelemetryQueryResult,
+    TelemetryService,
+    TelemetrySpan,
+    TelemetryTrace,
+)
 from app.repositories.telemetry import TelemetryRepositoryError
 
 
@@ -82,9 +91,63 @@ class TelemetryRepository:
             ),
         )
 
+    async def get_trace(self, trace_id, *, start_time, end_time, max_spans):
+        span_end = START + timedelta(milliseconds=10)
+        span = TelemetrySpan(
+            source=SourceDocument(index="otel-v1-apm-span-000001", document_id="span-1"),
+            service=TelemetryService(
+                service_id=SERVICE.service_id,
+                namespace=SERVICE.namespace,
+                environment=SERVICE.environment,
+                name=SERVICE.name,
+                instance_id="test-instance",
+            ),
+            trace_id=trace_id,
+            span_id="1" * 16,
+            parent_span_id=None,
+            name="POST /orders",
+            kind="SERVER",
+            start_time=stamp(START),
+            end_time=stamp(span_end),
+            duration_ns=10_000_000,
+            duration_ms=10.0,
+            status="OK",
+            http_method="POST",
+            http_route="/orders",
+            http_status_code=200,
+            content_sha256="a" * 64,
+        )
+        trace = TelemetryTrace(
+            trace_id=trace_id,
+            spans=[span],
+            services=[
+                ServiceReference(
+                    namespace=SERVICE.namespace,
+                    environment=SERVICE.environment,
+                    name=SERVICE.name,
+                )
+            ],
+            start_time=span.start_time,
+            end_time=span.end_time,
+            root_present=True,
+            missing_parent_count=0,
+            has_error=False,
+        )
+        return TelemetryQueryResult(
+            items=[trace],
+            metadata=QueryMetadata(
+                partial=False,
+                truncated=False,
+                reasons=[],
+                returned_count=1,
+                matched_count=1,
+            ),
+        )
+
 
 def client(incident_repository=None) -> TestClient:
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router)
     app.state.incident_repository = incident_repository or IncidentRepository()
     app.state.telemetry_repository = TelemetryRepository()
@@ -143,4 +206,52 @@ def test_dependency_failure_is_safe_503() -> None:
 
     response = client(UnavailableRepository()).get("/api/v1/overview")
     assert response.status_code == 503
-    assert response.json() == {"detail": "dependency_unavailable"}
+    assert response.json()["error"] == {
+        "code": "dependency_unavailable",
+        "message": "A required dependency is unavailable",
+        "retryable": True,
+        "details": [],
+        "active_investigation_id": None,
+    }
+
+
+def test_bounded_trace_endpoint_returns_typed_scope_safe_trace() -> None:
+    trace_id = "a" * 32
+    response = client().get(
+        f"/api/v1/traces/{trace_id}",
+        params={
+            "service_id": SERVICE.service_id,
+            "start": stamp(START - timedelta(minutes=1)),
+            "end": stamp(END + timedelta(minutes=1)),
+            "max_spans": 10,
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["trace"]["trace_id"] == trace_id
+    assert result["trace"]["spans"][0]["service"]["service_id"] == SERVICE.service_id
+    assert result["evidence_id"] is None
+    assert result["out_of_scope_span_count"] == 0
+
+
+def test_trace_validation_uses_safe_contract_error_envelope() -> None:
+    response = client().get(
+        f"/api/v1/traces/{'a' * 32}",
+        params={
+            "service_id": SERVICE.service_id,
+            "start": stamp(START),
+            "end": stamp(END),
+            "max_spans": 201,
+        },
+    )
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "validation_error"
+    assert error["retryable"] is False
+    assert error["details"][0]["field"] == "query.max_spans"
+
+
+def test_unknown_query_field_is_rejected() -> None:
+    response = client().get("/api/v1/services", params={"query": "match_all"})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"

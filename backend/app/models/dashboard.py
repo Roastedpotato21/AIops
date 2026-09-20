@@ -9,7 +9,7 @@ from app.models.detection import (
     ServiceMetricBucket,
     TimeRange,
 )
-from app.models.incidents import IncidentSummary, Page, ReasonCode
+from app.models.incidents import IncidentSummary, Page, ReasonCode, TraceSnapshot
 from app.models.telemetry import (
     DependencyEdge,
     TelemetryModel,
@@ -146,3 +146,9 @@ class DependenciesResponse(TelemetryModel):
     service: ServiceKey
     window: TimeRange
     edges: Page[DependencyEdge]
+
+
+class TraceResponse(TelemetryModel):
+    trace: TraceSnapshot
+    evidence_id: str | None = Field(default=None, pattern=r"^ev_[0-9a-f]{64}$")
+    out_of_scope_span_count: int = Field(ge=0)

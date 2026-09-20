@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
+from app.api.strict import StrictQueryRoute
 from app.detection.registry import registered_specs
+from app.incidents.evidence import service_key_from_reference, span_snapshot
 from app.models.dashboard import (
     ComponentStatus,
     DependenciesResponse,
@@ -18,17 +20,30 @@ from app.models.dashboard import (
     ServiceDetail,
     ServiceHealth,
     ServiceSummary,
+    TraceResponse,
 )
 from app.models.detection import ServiceKey, TimeRange
-from app.models.incidents import ApiResponse, Coverage, Freshness, Page
+from app.models.incidents import ApiResponse, Coverage, Freshness, Page, TraceSnapshot
 from app.models.telemetry import NativeMetric, ServiceReference
 from app.repositories.telemetry import TelemetryRepositoryError
 
-router = APIRouter(prefix="/api/v1", tags=["dashboard"])
+router = APIRouter(prefix="/api/v1", tags=["dashboard"], route_class=StrictQueryRoute)
 
 
 def _utc(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _valid_range(start: datetime, end: datetime, maximum: timedelta) -> bool:
+    return (
+        start.tzinfo is not None
+        and end.tzinfo is not None
+        and start.utcoffset() == timedelta(0)
+        and end.utcoffset() == timedelta(0)
+        and start < end
+        and end - start <= maximum
+        and end <= datetime.now(UTC) + timedelta(seconds=30)
+    )
 
 
 LABEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"
@@ -321,12 +336,7 @@ async def service_metrics(
     service = _service(service_id)
     stop = end or datetime.now(UTC)
     begin = start or stop - timedelta(hours=1)
-    if (
-        begin.tzinfo is None
-        or stop.tzinfo is None
-        or begin >= stop
-        or stop - begin > timedelta(hours=24)
-    ):
+    if not _valid_range(begin, stop, timedelta(hours=24)):
         raise HTTPException(422, "invalid metric time range")
     try:
         buckets = await request.app.state.incident_repository.metric_buckets(
@@ -379,12 +389,7 @@ async def service_dependencies(
     service = _service(service_id)
     stop = end or datetime.now(UTC)
     begin = start or stop - timedelta(minutes=15)
-    if (
-        begin.tzinfo is None
-        or stop.tzinfo is None
-        or begin >= stop
-        or stop - begin > timedelta(hours=1)
-    ):
+    if not _valid_range(begin, stop, timedelta(hours=1)):
         raise HTTPException(422, "invalid dependency time range")
     try:
         result = await request.app.state.telemetry_repository.get_service_dependencies(
@@ -407,4 +412,73 @@ async def service_dependencies(
         ),
         latest=max((item.observed_at for item in edges), default=None),
         partial=result.metadata.partial or result.metadata.truncated,
+    )
+
+
+@router.get("/traces/{trace_id}")
+async def trace_detail(
+    request: Request,
+    trace_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")],
+    service_id: Annotated[str, Query(pattern=r"^svc_[0-9a-f]{64}$")],
+    start: datetime,
+    end: datetime,
+    max_spans: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> ApiResponse[TraceResponse]:
+    requested_service = _service(service_id)
+    if not _valid_range(start, end, timedelta(minutes=30)):
+        raise HTTPException(422, "invalid trace time range")
+    try:
+        result = await request.app.state.telemetry_repository.get_trace(
+            trace_id,
+            start_time=start,
+            end_time=end,
+            max_spans=max_spans,
+        )
+    except TelemetryRepositoryError:
+        raise HTTPException(503, "dependency_unavailable") from None
+    if not result.items:
+        raise HTTPException(404, "not_found")
+    trace = result.items[0]
+    if not any(span.service.service_id == service_id for span in trace.spans):
+        raise HTTPException(404, "not_found")
+    allowed_ids = {
+        service.service_id
+        for service in _services(requested_service.namespace, requested_service.environment)
+    }
+    authorized = [span for span in trace.spans if span.service.service_id in allowed_ids]
+    removed = len(trace.spans) - len(authorized)
+    if not authorized:
+        raise HTTPException(404, "not_found")
+    span_ids = {span.span_id for span in authorized}
+    missing_parents = sum(
+        span.parent_span_id is not None and span.parent_span_id not in span_ids
+        for span in authorized
+    )
+    snapshot = TraceSnapshot(
+        trace_id=trace.trace_id,
+        window=TimeRange(
+            start=min(span.start_time for span in authorized),
+            end=max(span.end_time for span in authorized),
+        ),
+        services=sorted(
+            {
+                span.service.service_id: service_key_from_reference(span.service)
+                for span in authorized
+            }.values(),
+            key=lambda item: item.service_id,
+        ),
+        spans=[span_snapshot(span) for span in authorized],
+        root_present=any(span.parent_span_id is None for span in authorized),
+        truncated=result.metadata.truncated or removed > 0,
+        missing_parent_count=missing_parents,
+        observed_span_count=result.metadata.matched_count,
+    )
+    return _envelope(
+        TraceResponse(
+            trace=snapshot,
+            evidence_id=None,
+            out_of_scope_span_count=removed,
+        ),
+        latest=snapshot.window.end,
+        partial=result.metadata.partial or result.metadata.truncated or removed > 0,
     )

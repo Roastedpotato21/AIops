@@ -71,7 +71,7 @@ Browser automation verified the current React operations UI against the live API
 - investigation report showed `SUCCEEDED`, low confidence, insufficient evidence, no established root, and both required limitations;
 - incident, evidence, investigation, overview, and service API requests returned HTTP 200;
 - browser console and page-error collections were empty;
-- screenshot: `phase9-persisted-incident.png`.
+- screenshot: `docs/assets/screenshots/phase9-persisted-incident.png`.
 
 During the controlled OpenSearch outage, the frontend showed `Not ready` with OpenSearch and bootstrap unreachable. The restarted Compose frontend initially exposed a stale Phase 1 image; a targeted current-image rebuild/recreate corrected it, and the containerized page then passed the same persisted markers with no console/page errors.
 

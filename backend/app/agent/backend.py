@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 
 from app.incidents.evidence import (
@@ -12,7 +13,12 @@ from app.models.detection import Failure, TimeRange, deterministic_id
 from app.models.incidents import (
     DependencySnapshot,
     DocumentLocator,
+    ErrorGroupSnapshot,
     LogSnapshot,
+    MetricLabel,
+    NativeHistogramValue,
+    NativeMetricSnapshot,
+    NativeScalarValue,
     Provenance,
     QueryLocator,
     QueryParameters,
@@ -43,6 +49,20 @@ from app.models.telemetry import ServiceReference
 from app.repositories.telemetry import TelemetryRepositoryError
 
 SEVERITIES = ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"]
+NATIVE_METRIC_NAMES = (
+    "aiops.telemetry.heartbeat",
+    "demo.http.server.duration",
+    "demo.http.server.errors",
+    "demo.http.server.requests",
+    "process.cpu.utilization",
+    "process.memory.usage",
+)
+NATIVE_LABEL_NAMES = {"http.request.method", "http.route", "http.response.status_code"}
+UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
+)
+DIGIT_PATTERN = re.compile(r"\d+")
 
 
 class RepositoryToolBackend:
@@ -262,31 +282,99 @@ class RepositoryToolBackend:
     async def get_metrics(self, call: ToolCall, context: ToolContext) -> ToolResponse:
         arguments = call.arguments
         assert isinstance(arguments, MetricsParams)
-        if arguments.include_native:
-            return self._error(
+        try:
+            buckets = await self._incidents.metric_buckets(
+                arguments.service_ids,
+                arguments.window.start,
+                arguments.window.end,
+                limit=arguments.limit,
+            )
+            items = [
+                self._item(
+                    context,
+                    bucket_candidate(bucket, features=tuple(arguments.features)),
+                )
+                for bucket in buckets
+                if any(getattr(bucket, feature) is not None for feature in arguments.features)
+            ]
+            native_items = []
+            partial = False
+            remaining = max(0, arguments.limit - len(items))
+            if arguments.include_native and remaining:
+                start, end = _datetimes(arguments.window)
+                for service in self._services(context, arguments.service_ids):
+                    result = await self._telemetry.get_native_metrics(
+                        service,
+                        start,
+                        end,
+                        metric_names=NATIVE_METRIC_NAMES,
+                        limit=min(20 - len(native_items), remaining - len(native_items)),
+                    )
+                    partial = partial or result.metadata.partial or result.metadata.truncated
+                    for metric in result.items:
+                        service_key = service_key_from_reference(metric.service)
+                        value = (
+                            NativeScalarValue(value=metric.value)
+                            if metric.histogram is None
+                            else NativeHistogramValue(
+                                count=metric.histogram.count,
+                                sum=metric.histogram.sum,
+                                bounds=metric.histogram.bounds,
+                                counts=metric.histogram.counts,
+                            )
+                        )
+                        candidate = EvidenceCandidate(
+                            evidence_type="native_metric",
+                            source=DocumentLocator(
+                                index=metric.source.index,
+                                document_id=metric.source.document_id,
+                            ),
+                            service=service_key,
+                            window=TimeRange(
+                                start=metric.event_time,
+                                end=_instant_end(metric.event_time),
+                            ),
+                            summary=(
+                                f"Native metric {metric.name} ({metric.metric_type}, "
+                                f"unit={metric.unit})"
+                            ),
+                            snapshot=NativeMetricSnapshot(
+                                service=service_key,
+                                name=metric.name,
+                                unit=metric.unit,
+                                window=TimeRange(
+                                    start=metric.event_time,
+                                    end=_instant_end(metric.event_time),
+                                ),
+                                metric_type=metric.metric_type,
+                                temporality=metric.temporality,
+                                attribute_labels=[
+                                    MetricLabel(key=key, value=label)
+                                    for key, label in sorted(metric.labels.items())
+                                    if key in NATIVE_LABEL_NAMES
+                                ][:16],
+                                value=value,
+                            ),
+                            template_id="native-metrics-by-service",
+                            index_alias="aiops-metrics-raw",
+                            include_native=True,
+                        )
+                        native_items.append(self._item(context, candidate))
+                        if len(native_items) >= min(20, remaining):
+                            break
+                    if len(native_items) >= min(20, remaining):
+                        break
+            all_items = [*items, *native_items]
+            await self._incidents.save_evidence_items(all_items)
+            return self._success(
                 call,
                 context,
-                "invalid_argument",
-                "Native metric retrieval is not enabled for this tool contract",
+                MetricResults(buckets=items, native_points=native_items),
+                [item.evidence_id for item in all_items],
+                partial=partial,
             )
-        buckets = await self._incidents.metric_buckets(
-            arguments.service_ids,
-            arguments.window.start,
-            arguments.window.end,
-            limit=arguments.limit,
-        )
-        items = [
-            self._item(context, bucket_candidate(bucket))
-            for bucket in buckets
-            if any(getattr(bucket, feature) is not None for feature in arguments.features)
-        ]
-        await self._incidents.save_evidence_items(items)
-        return self._success(
-            call,
-            context,
-            MetricResults(buckets=items, native_points=[]),
-            [item.evidence_id for item in items],
-        )
+        except TelemetryRepositoryError:
+            return self._error(call, context, "unavailable", "Metric query failed", True)
 
     async def get_service_dependencies(self, call: ToolCall, context: ToolContext) -> ToolResponse:
         arguments = call.arguments
@@ -344,10 +432,65 @@ class RepositoryToolBackend:
         logs = await self.search_logs(log_call, context)
         if not isinstance(logs.result, LogResults):
             return logs
-        return logs.model_copy(
-            update={
-                "result": ErrorGroupResults(groups=[], samples=logs.result.items),
-            }
+        groups: dict[str, list] = {}
+        group_values: dict[str, tuple] = {}
+        for item in logs.result.items:
+            snapshot = item.snapshot
+            if not isinstance(snapshot, LogSnapshot):
+                continue
+            error_type = snapshot.error_type or "unknown"
+            template = _error_template(snapshot.body)
+            fingerprint = deterministic_id(
+                "errorgroup", [item.service.service_id, error_type, template, "1.0.0"]
+            )
+            groups.setdefault(fingerprint, []).append(item)
+            group_values[fingerprint] = (item.service, error_type, template)
+        ranked = sorted(groups, key=lambda key: (-len(groups[key]), key))[: arguments.limit]
+        group_items = []
+        samples = []
+        for fingerprint in ranked:
+            observed = groups[fingerprint]
+            sample_ids = [item.evidence_id for item in observed[:3]]
+            service, error_type, template = group_values[fingerprint]
+            candidate = EvidenceCandidate(
+                evidence_type="error_group",
+                source=QueryLocator(
+                    query_id=deterministic_id(
+                        "query",
+                        [fingerprint, arguments.window.start, arguments.window.end],
+                    ),
+                    index_alias="aiops-logs",
+                ),
+                service=service,
+                window=arguments.window,
+                summary=f"{error_type}: {template} ({len(observed)} observed)",
+                snapshot=ErrorGroupSnapshot(
+                    fingerprint=fingerprint,
+                    service=service,
+                    window=arguments.window,
+                    error_type=error_type,
+                    message_template=template,
+                    count=len(observed),
+                    sample_evidence_ids=sample_ids,
+                ),
+                template_id="related-errors-by-service",
+                index_alias="aiops-logs",
+                truncated=logs.status == "partial",
+            )
+            group_items.append(self._item(context, candidate))
+            samples.extend(observed[:3])
+        unique_samples = list({item.evidence_id: item for item in samples}.values())[:30]
+        await self._incidents.save_evidence_items(group_items)
+        evidence_ids = [
+            *[item.evidence_id for item in group_items],
+            *[item.evidence_id for item in unique_samples],
+        ]
+        return self._success(
+            call,
+            context,
+            ErrorGroupResults(groups=group_items, samples=unique_samples),
+            evidence_ids,
+            partial=logs.status == "partial",
         )
 
     def _services(self, context: ToolContext, service_ids: list[str]) -> list[ServiceReference]:
@@ -402,17 +545,25 @@ class RepositoryToolBackend:
 
 def _provenance(call, context, count, truncated):
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    arguments = call.arguments
     return Provenance(
         query_id=deterministic_id("query", [context.job_id, str(call.call_id), call.name]),
         template_id=f"tool-{call.name}",
         template_version="1.0.0",
         parameters=QueryParameters(
-            service_ids=context.allowed_service_ids,
-            window=context.allowed_window,
-            features=[],
+            service_ids=getattr(arguments, "service_ids", context.allowed_service_ids),
+            window=getattr(arguments, "window", context.allowed_window),
+            trace_id=getattr(arguments, "trace_id", None),
+            severity_min=getattr(arguments, "severity_min", None),
+            features=getattr(arguments, "features", []),
             incident_id=context.incident_id,
-            limit=max(1, count),
-            include_native=False,
+            max_spans=getattr(arguments, "max_spans", None),
+            text_contains=getattr(arguments, "text_contains", None),
+            status=getattr(arguments, "status", None),
+            min_duration_ms=getattr(arguments, "min_duration_ms", None),
+            limit=getattr(arguments, "limit", max(1, count)),
+            direction=getattr(arguments, "direction", None),
+            include_native=getattr(arguments, "include_native", False),
         ),
         retrieved_at=now,
         source_cutoff=now,
@@ -427,6 +578,12 @@ def _datetimes(window):
         datetime.fromisoformat(window.start.replace("Z", "+00:00")),
         datetime.fromisoformat(window.end.replace("Z", "+00:00")),
     )
+
+
+def _error_template(value: str) -> str:
+    redacted = SECRET_PATTERN.sub(r"\1=[REDACTED]", value)
+    normalized = DIGIT_PATTERN.sub("<n>", UUID_PATTERN.sub("<uuid>", redacted))
+    return " ".join(normalized.split())[:512] or "unknown error"
 
 
 def _instant_end(value: str) -> str:

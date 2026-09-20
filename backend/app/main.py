@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.scheduling import InvestigationScheduler
 from app.api.dashboard import router as dashboard_router
+from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
 from app.api.incidents import router as incidents_router
 from app.api.investigations import router as investigations_router
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Accept", "Content-Type", "Idempotency-Key", "X-Request-ID"],
     )
+    install_error_handlers(application)
     application.include_router(health_router)
     application.include_router(dashboard_router)
     application.include_router(incidents_router)

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Body, Header, HTTPException, Path, Request, Respo
 
 from app.agent.scheduling import SchedulingConflict
 from app.api.incidents import _envelope
+from app.api.strict import StrictQueryRoute
 from app.models.incidents import ApiResponse
 from app.models.investigation import (
     InvestigationAccepted,
@@ -12,7 +13,11 @@ from app.models.investigation import (
 )
 from app.repositories.telemetry import TelemetryRepositoryError
 
-router = APIRouter(prefix="/api/v1", tags=["investigations"])
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["investigations"],
+    route_class=StrictQueryRoute,
+)
 
 
 @router.post("/incidents/{incident_id}/investigate", status_code=202)

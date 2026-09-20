@@ -263,6 +263,55 @@ class DependencySnapshot(TelemetryModel):
     edge: DependencyEdge
 
 
+class ErrorGroupSnapshot(TelemetryModel):
+    kind: Literal["error_group"] = "error_group"
+    fingerprint: str = Field(pattern=r"^errorgroup_[0-9a-f]{64}$")
+    service: ServiceKey
+    window: TimeRange
+    error_type: str = Field(min_length=1, max_length=128)
+    message_template: str = Field(min_length=1, max_length=512)
+    count: int = Field(ge=1)
+    sample_evidence_ids: list[str] = Field(min_length=1, max_length=3)
+
+
+class MetricLabel(TelemetryModel):
+    key: str = Field(min_length=1, max_length=64)
+    value: str = Field(max_length=128)
+
+
+class NativeScalarValue(TelemetryModel):
+    kind: Literal["scalar"] = "scalar"
+    value: float = Field(allow_inf_nan=False)
+
+
+class NativeHistogramValue(TelemetryModel):
+    kind: Literal["histogram"] = "histogram"
+    count: int = Field(ge=0)
+    sum: float | None = Field(allow_inf_nan=False)
+    bounds: list[float] = Field(max_length=64)
+    counts: list[int] = Field(max_length=65)
+
+    @model_validator(mode="after")
+    def validate_histogram(self) -> "NativeHistogramValue":
+        if len(self.counts) != len(self.bounds) + 1 or sum(self.counts) != self.count:
+            raise ValueError("invalid histogram bucket counts")
+        if any(right <= left for left, right in zip(self.bounds, self.bounds[1:], strict=False)):
+            raise ValueError("histogram bounds must be strictly increasing")
+        return self
+
+
+class NativeMetricSnapshot(TelemetryModel):
+    kind: Literal["native_metric"] = "native_metric"
+    service: ServiceKey
+    name: str = Field(min_length=1, max_length=128)
+    unit: str = Field(max_length=32)
+    window: TimeRange
+    metric_type: Literal["gauge", "sum", "histogram"]
+    temporality: Literal["unspecified", "delta", "cumulative"]
+    attribute_labels: list[MetricLabel] = Field(default_factory=list, max_length=16)
+    value: NativeScalarValue | NativeHistogramValue
+
+
 EvidenceSnapshot = (
     AnomalySnapshot
     | MetricBucketSnapshot
@@ -270,6 +319,8 @@ EvidenceSnapshot = (
     | SpanSnapshot
     | TraceSnapshot
     | DependencySnapshot
+    | ErrorGroupSnapshot
+    | NativeMetricSnapshot
 )
 
 
@@ -279,7 +330,14 @@ class EvidenceItem(TelemetryModel):
     owner_incident_id: str = Field(pattern=r"^incident_[0-9a-f]{64}$")
     evidence_id: str = Field(pattern=r"^ev_[0-9a-f]{64}$")
     evidence_type: Literal[
-        "anomaly_result", "metric_bucket", "log_record", "span", "trace", "dependency_edge"
+        "anomaly_result",
+        "metric_bucket",
+        "log_record",
+        "span",
+        "trace",
+        "dependency_edge",
+        "error_group",
+        "native_metric",
     ]
     source: SourceLocator
     service: ServiceKey

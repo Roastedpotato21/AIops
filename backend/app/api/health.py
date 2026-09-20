@@ -2,9 +2,10 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response, status
 
+from app.api.strict import StrictQueryRoute
 from app.models.health import HealthResponse, ReadinessCheck, ReadyResponse
 
-router = APIRouter()
+router = APIRouter(route_class=StrictQueryRoute)
 
 
 def now() -> datetime:

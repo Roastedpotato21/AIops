@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from test_incidents import NOW, MemoryRepository, anomaly, setup_data, stamp
 
+from app.agent.backend import RepositoryToolBackend
 from app.agent.investigator import Investigator
 from app.agent.providers import (
     DeterministicDevelopmentProvider,
@@ -22,6 +23,7 @@ from app.incidents.engine import IncidentEngine
 from app.models.detection import Failure, deterministic_id
 from app.models.incidents import Provenance, QueryParameters
 from app.models.investigation import (
+    ErrorGroupResults,
     EvidenceClaim,
     GenerationResponse,
     IncidentToolView,
@@ -30,12 +32,23 @@ from app.models.investigation import (
     InvestigationReport,
     InvestigationRequest,
     LogResults,
+    MetricResults,
+    MetricsParams,
     ProviderUsage,
+    RelatedErrorsParams,
     SearchLogsParams,
     SuggestedAction,
     ToolCall,
     ToolContext,
     ToolResponse,
+)
+from app.models.telemetry import (
+    NativeMetric,
+    QueryMetadata,
+    SourceDocument,
+    TelemetryLog,
+    TelemetryQueryResult,
+    TelemetryService,
 )
 from app.repositories.investigations import InvestigationRepository
 from app.workers.investigations import provider_from_settings, run_once
@@ -369,6 +382,135 @@ def test_arbitrary_dsl_write_shell_and_unknown_tools_are_impossible():
                 "command": "restart",
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_repository_tools_return_native_metrics_and_group_related_errors():
+    incidents, incident, bundle, _ = await phase7_fixture()
+
+    class ToolIncidents(SchedulingIncidents):
+        async def save_evidence_items(self, items):
+            self.items.update({item.evidence_id: item for item in items})
+
+        async def metric_buckets(self, service_ids, start, end, *, limit):
+            return []
+
+    tool_incidents = ToolIncidents(list(incidents.buckets.values()))
+    tool_incidents.incidents = incidents.incidents
+    tool_incidents.items = incidents.items
+    tool_incidents.bundles = incidents.bundles
+    observed_at = bundle.window.start
+    service = TelemetryService(
+        service_id=incident.primary_service.service_id,
+        namespace=incident.primary_service.namespace,
+        environment=incident.primary_service.environment,
+        name=incident.primary_service.name,
+        instance_id="test-instance",
+    )
+
+    class ToolTelemetry:
+        async def get_native_metrics(self, service_ref, start, end, *, metric_names, limit):
+            metric = NativeMetric(
+                source=SourceDocument(index="aiops-metrics-raw-2026.09.20", document_id="m-1"),
+                service=service,
+                name="process.cpu.utilization",
+                description="CPU utilization",
+                unit="1",
+                metric_type="gauge",
+                temporality="unspecified",
+                monotonic=None,
+                start_time=None,
+                event_time=observed_at,
+                value=0.25,
+                histogram=None,
+                labels={},
+            )
+            return TelemetryQueryResult(
+                items=[metric],
+                metadata=QueryMetadata(
+                    partial=False,
+                    truncated=False,
+                    reasons=[],
+                    returned_count=1,
+                    matched_count=1,
+                ),
+            )
+
+        async def search_logs(
+            self, service_ref, start, end, *, severity, trace_id, text, limit
+        ):
+            logs = []
+            if severity == "ERROR":
+                for index, number in enumerate(("123", "456"), start=1):
+                    logs.append(
+                        TelemetryLog(
+                            source=SourceDocument(
+                                index="aiops-logs-2026.09.20",
+                                document_id=f"log-{index}",
+                            ),
+                            service=service,
+                            event_time=observed_at,
+                            observed_time=observed_at,
+                            severity="ERROR",
+                            body=f"upstream timeout order {number}",
+                            trace_id=None,
+                            span_id=None,
+                            event="payment.failed",
+                            error_type="TimeoutError",
+                        )
+                    )
+            return TelemetryQueryResult(
+                items=logs,
+                metadata=QueryMetadata(
+                    partial=False,
+                    truncated=False,
+                    reasons=[],
+                    returned_count=len(logs),
+                    matched_count=len(logs),
+                ),
+            )
+
+    backend = RepositoryToolBackend(
+        tool_incidents,
+        ToolTelemetry(),
+        trace_alias="otel-v1-apm-span",
+    )
+    await backend.bind_incident(incident.incident_id)
+    tool_context = context(incident, bundle, bundle.evidence_ids)
+    metric_response = await backend.get_metrics(
+        ToolCall(
+            call_id=uuid4(),
+            name="get_metrics",
+            arguments=MetricsParams(
+                service_ids=[incident.primary_service.service_id],
+                window=bundle.window,
+                include_native=True,
+                limit=20,
+            ),
+        ),
+        tool_context,
+    )
+    assert isinstance(metric_response.result, MetricResults)
+    assert metric_response.result.native_points[0].snapshot.kind == "native_metric"
+    assert metric_response.provenance.parameters.include_native is True
+
+    error_response = await backend.find_related_errors(
+        ToolCall(
+            call_id=uuid4(),
+            name="find_related_errors",
+            arguments=RelatedErrorsParams(
+                service_ids=[incident.primary_service.service_id],
+                window=bundle.window,
+                limit=5,
+            ),
+        ),
+        tool_context,
+    )
+    assert isinstance(error_response.result, ErrorGroupResults)
+    assert len(error_response.result.groups) == 1
+    assert error_response.result.groups[0].snapshot.kind == "error_group"
+    assert error_response.result.groups[0].snapshot.count == 2
+    assert error_response.result.groups[0].snapshot.message_template.endswith("<n>")
     with pytest.raises(ValidationError):
         ToolCall.model_validate(
             {"call_id": str(uuid4()), "name": "shell", "arguments": {"command": "id"}}

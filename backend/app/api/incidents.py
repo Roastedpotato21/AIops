@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
+from app.api.strict import StrictQueryRoute
 from app.models.detection import deterministic_id
 from app.models.incidents import (
     ApiResponse,
@@ -16,7 +17,11 @@ from app.models.incidents import (
     TimelineEntry,
 )
 
-router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
+router = APIRouter(
+    prefix="/api/v1/incidents",
+    tags=["incidents"],
+    route_class=StrictQueryRoute,
+)
 
 
 def _utc(value: datetime) -> str:
@@ -111,8 +116,11 @@ async def list_incidents(
     if (
         begin.tzinfo is None
         or stop.tzinfo is None
+        or begin.utcoffset() != timedelta(0)
+        or stop.utcoffset() != timedelta(0)
         or begin >= stop
         or stop - begin > timedelta(days=30)
+        or stop > datetime.now(UTC) + timedelta(seconds=30)
     ):
         raise HTTPException(422, "invalid incident time range")
     items = await request.app.state.incident_repository.list_incidents(
@@ -165,7 +173,14 @@ async def get_incident_evidence(
     incident_id: Annotated[str, Path(pattern=r"^incident_[0-9a-f]{64}$")],
     bundle_version: Annotated[int | None, Query(ge=1)] = None,
     type: Literal[
-        "anomaly_result", "metric_bucket", "log_record", "span", "trace", "dependency_edge"
+        "anomaly_result",
+        "metric_bucket",
+        "log_record",
+        "span",
+        "trace",
+        "dependency_edge",
+        "error_group",
+        "native_metric",
     ]
     | None = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,

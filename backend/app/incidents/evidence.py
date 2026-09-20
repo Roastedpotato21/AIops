@@ -63,6 +63,8 @@ class EvidenceCandidate:
     index_alias: str
     matched_count: int | None = 1
     truncated: bool = False
+    features: tuple[str, ...] = ()
+    include_native: bool = False
 
 
 def service_key_from_reference(service: ServiceReference | TelemetryService) -> ServiceKey:
@@ -257,7 +259,11 @@ def anomaly_candidate(anomaly: NormalizedAnomaly) -> EvidenceCandidate:
     )
 
 
-def bucket_candidate(bucket: ServiceMetricBucket) -> EvidenceCandidate:
+def bucket_candidate(
+    bucket: ServiceMetricBucket,
+    *,
+    features: tuple[str, ...] = (),
+) -> EvidenceCandidate:
     return EvidenceCandidate(
         evidence_type="metric_bucket",
         source=DocumentLocator(index="aiops-service-metrics-v1", document_id=bucket.bucket_id),
@@ -270,6 +276,7 @@ def bucket_candidate(bucket: ServiceMetricBucket) -> EvidenceCandidate:
         snapshot=MetricBucketSnapshot(bucket=bucket),
         template_id="metric-bucket-by-id",
         index_alias="aiops-service-metrics-v1",
+        features=features,
     )
 
 
@@ -299,13 +306,13 @@ def make_evidence_item(
     parameters = QueryParameters(
         service_ids=[candidate.service.service_id],
         window=candidate.window,
-        features=[],
+        features=list(candidate.features),
         incident_id=incident_id,
         document_id=(
             candidate.source.document_id if isinstance(candidate.source, DocumentLocator) else None
         ),
         limit=1,
-        include_native=False,
+        include_native=candidate.include_native,
     )
     summary = SECRET_PATTERN.sub(r"\1=[REDACTED]", candidate.summary)[:512]
     item = EvidenceItem(

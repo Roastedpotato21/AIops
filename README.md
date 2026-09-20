@@ -1,103 +1,171 @@
-# AIOps platform
+# OpenSearch AIOps
 
-Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order calls Payment and then Inventory—and a profile-only load generator. Phase 3 adds real OpenTelemetry tracing, correlated JSON logs, and native request metrics to those services. Phase 4 provides bounded normalized telemetry reads. Phase 5 derives finalized one-minute service buckets and feeds native OpenSearch anomaly detectors.
+> An evidence-first operations platform that turns distributed telemetry into deterministic incidents and bounded, read-only investigations.
 
-## Prerequisites
+Modern services emit enormous volumes of traces, logs, and metrics, but operators still have to connect symptoms, determine impact, and assemble trustworthy evidence under pressure. OpenSearch AIOps provides that missing operational layer while keeping every conclusion traceable to stored evidence.
 
-- Docker Desktop using Linux containers, with at least 8 GiB available to Docker.
-- Docker Compose v2.
-- Python 3.12 through `uv`.
-- Node.js 24.21.0 and npm for host-side frontend checks. The digest-pinned
-  Node 24.21.0 frontend container is the authoritative build environment;
-  older host runtimes are not release evidence.
-- On Linux/WSL, OpenSearch requires `vm.max_map_count=262144`. Check it before startup; do not change host settings without understanding the impact.
+![Persisted incident and investigation view](docs/assets/screenshots/phase9-persisted-incident.png)
 
-## Local setup
+## What it does
 
-1. Generate ignored local credentials:
+- Instruments a three-service order flow with OpenTelemetry traces, correlated logs, and native metrics.
+- Routes all three signals through the OpenTelemetry Collector and Data Prepper into OpenSearch.
+- Builds deterministic one-minute latency and error-rate feature buckets.
+- Runs six native OpenSearch Random Cut Forest detectors.
+- Normalizes detector results without inventing anomaly grades or confidence.
+- Opens one deterministic active incident per service and feature.
+- Freezes a pre-incident baseline and requires three healthy minutes to recover and five to resolve.
+- Collects immutable, redacted, size-bounded evidence bundles.
+- Runs an asynchronous investigation worker with exactly seven allowlisted read-only tools.
+- Presents services, metrics, dependencies, incidents, evidence, and investigations through FastAPI and React.
 
-   `uv run --project backend python scripts/generate_local_secrets.py`
+## Why OpenSearch is central
 
-2. Validate and build:
+OpenSearch is the platform's only application datastore, not an export destination attached at the end. It stores telemetry, finalized service features, native anomaly-detector state and results, normalized anomalies, incidents, evidence, investigation jobs, and durable worker progress. Its security roles enforce separate write boundaries for aggregation, incident, investigation, API, and ingestion components.
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet`
+Native OpenSearch anomaly detection supplies the RCF model. Application code never fabricates a substitute score. When the model is warming or data is insufficient, the product reports that state explicitly.
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml build api frontend compatibility-probe`
+## Architecture
 
-3. Start OpenSearch and bootstrap twice to verify idempotence:
+```mermaid
+flowchart LR
+    A[Order / Payment / Inventory] -->|OTel traces, logs, metrics| C[OTel Collector]
+    C --> D[Data Prepper]
+    D --> O[(OpenSearch)]
+    O --> G[1-minute aggregation worker]
+    G --> R[Native RCF detectors]
+    R --> N[Normalized anomalies]
+    N --> I[Deterministic incident worker]
+    I --> E[Evidence bundles]
+    E --> W[Investigation worker]
+    W --> T[7 read-only tools]
+    W --> O
+    O --> F[FastAPI]
+    F --> U[React / TypeScript / Vite]
+```
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d opensearch`
+The incident and investigation workers are separate processes. Neither the browser nor the reasoning provider receives OpenSearch credentials. The investigation agent cannot execute shell commands, call arbitrary URLs, mutate telemetry, deploy code, or perform remediation.
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm bootstrap`
+## End-to-end flow
 
-4. Start the stack and run the compatibility probe:
+1. A request crosses the Order service and its Payment and Inventory dependencies in one W3C trace.
+2. The Collector queues and forwards telemetry to Data Prepper.
+3. Data Prepper preserves native trace and service-map mappings while indexing signals in OpenSearch.
+4. The aggregation worker computes finalized one-minute p95 latency and error-rate buckets from completed server spans.
+5. Native RCF detectors score eligible buckets; the adapter preserves the native result and provenance.
+6. The incident engine deterministically assigns a positive result to one service/feature episode.
+7. The evidence collector snapshots bounded, redacted anomaly, metric, log, trace, span, error-group, dependency, and native-metric evidence.
+8. The investigation worker claims a persisted job, uses only the seven host-controlled read tools, and validates every citation.
+9. FastAPI serves typed operational views to the React dashboard.
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`
+## Technology
 
-   `docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm compatibility-probe`
+| Layer | Technology |
+|---|---|
+| Telemetry | OpenTelemetry Python SDK, OTLP/gRPC, Collector contrib |
+| Processing | Data Prepper, Python 3.12, deterministic workers |
+| Search and detection | OpenSearch 3.8, Security plugin, native anomaly detection |
+| API | FastAPI, Pydantic, HTTPX |
+| Frontend | React 19, TypeScript, Vite, Recharts |
+| Runtime | Docker Compose, digest-pinned production images |
+| Testing | Pytest, Ruff, Vitest, Testing Library, browser automation |
 
-Local endpoints are bound to loopback: API `http://127.0.0.1:8000`, frontend `http://127.0.0.1:4173`, and the development-only Dashboards inspection port `http://127.0.0.1:5601`. OpenSearch, OTLP, and Data Prepper ports are not published.
+Exact tested versions and image references are recorded in [the compatibility matrix](docs/architecture/compatibility-matrix.md).
 
-OpenSearch uses its demo TLS certificate only for this local phase. The API explicitly allows certificate verification to be disabled only when `AIOPS_ENVIRONMENT=development`. Deployment TLS is Phase 10.
+## Local quick start
 
-Do not use `docker compose down -v` for ordinary work: it deletes the persistent OpenSearch and Collector queue volumes.
+Prerequisites:
 
-## Phase 2 demo traffic
+- Docker Desktop or Docker Engine with Compose v2 and at least 8 GiB available.
+- On Linux/WSL, `vm.max_map_count=262144` for OpenSearch.
+- `uv` for local Python commands. The container build is the authoritative runtime.
 
-Build and start the three private demo services:
+Generate ignored local credentials:
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml build order-service payment-service inventory-service load-generator`
+```console
+uv run --project backend python scripts/generate_local_secrets.py
+```
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d payment-service inventory-service order-service`
+Validate, start OpenSearch, bootstrap, and launch the stack:
 
-Run bounded normal traffic without leaving a background generator:
+```console
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d opensearch
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm bootstrap
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile load run --rm -e LOAD_DURATION_SECONDS=10 -e LOAD_REQUESTS_PER_SECOND=2 load-generator`
+Generate normal traffic:
 
-Fault routes are absent by default. For local demo fault checks, set `FAULT_INJECTION_ENABLED=true`, recreate Payment and Inventory, then select one of `payment-latency`, `payment-errors`, or `inventory-errors` with `LOAD_SCENARIO`. Every fault request has a bounded duration and automatically ceases to affect requests at expiry. Do not enable faults in production.
+```console
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile load run --rm -e LOAD_DURATION_SECONDS=30 -e LOAD_REQUESTS_PER_SECOND=2 load-generator
+```
 
-Run focused Phase 2 tests:
+Open:
 
-`uv sync --project apps --frozen --all-extras`
+- Dashboard: <http://127.0.0.1:4173>
+- API health: <http://127.0.0.1:8000/health>
+- API readiness: <http://127.0.0.1:8000/ready>
 
-`uv run --project apps ruff check apps`
+Only the frontend and API bind to loopback. OpenSearch, ingestion ports, workers, and demo services remain private. Do not use `docker compose down -v` unless you intentionally want to delete local data.
 
-`uv run --project apps pytest -c apps/pyproject.toml apps/tests`
+## Demo scenario
 
-## Phase 3 telemetry
+For a sub-three-minute demo:
 
-The three services export OTLP/gRPC to the existing Collector at `otel-collector:4317`. Resource identity is configured with `OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAMESPACE`, `SERVICE_VERSION`, and `DEPLOYMENT_ENVIRONMENT`. The native application metrics are:
+1. Show Overview and the three instrumented services.
+2. Run normal traffic and open a service detail page to show one-minute latency/error features and dependencies.
+3. Open the persisted incident shown above and call out its visible `FIXTURE` badge. The guarded fixture exists only to demonstrate the downstream incident/evidence/investigation experience while native RCF finishes warm-up.
+4. Open its 33-item evidence bundle and the succeeded investigation.
+5. Point out the low-confidence, insufficient-evidence result, evidence citations, and absence of an executed remediation.
 
-- `demo.http.server.requests`: completed business-route requests, unit `{request}`.
-- `demo.http.server.errors`: completed business-route requests with a 5xx response, unit `{request}`.
-- `demo.http.server.duration`: business-route duration histogram, unit `ms`.
+The fixture is never presented as a genuine detector event. A real latency/error scenario is available after the native detector profile reaches READY.
 
-Health, documentation, and `/__faults` routes are excluded from these application metrics.
+See [the timed demo script](docs/submission/DEMO_SCRIPT.md) for exact narration.
 
-After generating a normal order, use the bounded read-only inspector to verify a connected trace, correlated logs, and persisted metrics. `PHASE3_TRACE_ID` is optional; when omitted, the inspector selects the newest real `demo-shop` Order trace:
+## Safety boundaries
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm --no-deps --entrypoint python compatibility-probe scripts/inspect_phase3.py`
+- No autonomous remediation or infrastructure write tool exists.
+- Exactly seven typed agent tools are registered: incident, logs, trace search, trace detail, metrics, dependencies, and related errors.
+- Tool scope, time range, result size, calls, tokens, cost, and wall-clock duration are host-enforced.
+- Evidence is redacted before persistence or provider use and remains linked to immutable source provenance.
+- Fixture-derived incidents and investigations stay visibly labeled.
+- Separate least-privilege identities protect ingestion, aggregation, incidents, investigations, and API scheduling.
+- Local fault injection is disabled by default and is not a production capability.
 
-The inspector prints only selected telemetry evidence and never prints OpenSearch credentials or request payloads.
+## Validation status
 
-## Phase 5 aggregation and detection
+The local beta passed targeted live validation for telemetry persistence, worker authorization, incident/evidence creation, investigation persistence, the containerized dashboard, controlled restart, and OpenSearch outage/recovery. Focused contract-audit tests also cover the direct trace API, typed error envelopes, native-metric evidence, and normalized related-error groups.
 
-The persistent `aggregation-worker` reads only normalized completed spans through `TelemetryRepository`, waits 90 seconds after each minute, and writes deterministic service buckets. Detection requires at least 20 valid SERVER requests in a finalized minute. Empty and low-volume minutes are persisted as `insufficient`, never as healthy zeroes.
+Six genuine native RCF detectors are provisioned but were still in `INIT` during the accepted run. No positive native anomaly was fabricated. The full compliance result is in [FINAL_CONTRACT_AUDIT.md](docs/architecture/FINAL_CONTRACT_AUDIT.md).
 
-Phase 5 uses deterministic nearest-rank p95: sort eligible millisecond durations and select rank `ceil(0.95 * n)`. This is tested at zero, one, repeated, minimum-sample, and skewed inputs. The Phase 5 completion report records its difference from the Phase 0 TDigest wording.
+## AWS deployment
 
-Provision or reconcile the six native detectors after eligible buckets exist:
+Phase 10 will deploy the same Docker Compose architecture to AWS behind a single TLS/authenticated edge, with private storage and ingestion interfaces, retention enforcement, snapshots, disk alarms, and bounded deployment-shape measurement.
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm detector-provisioner`
+**Live EC2 URL:** `<PHASE_10_URL_PENDING>`
 
-Run the bounded inspector to show recent buckets, native detector states, and normalized native results:
+No AWS deployment has started from this repository state.
 
-`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm phase5-inspector`
+## Known limitations
 
-Focused host checks:
+- Genuine post-warm-up positive RCF latency and error-rate evidence is still pending.
+- Production retention enforcement, snapshots, disk alarms, TLS, authentication, and rate limiting belong to Phase 10.
+- Physical cross-rollover duplicate/conflict behavior still needs isolated staging validation.
+- The preserved development volume has a legacy worker-state `last_error` mapping; clean bootstrap is correct, while reuse requires the documented versioned migration.
+- The external provider adapter has not been live-tested because no credential was authorized. The deterministic provider proves orchestration and safety, not external model quality.
+- Signed continuation cursors remain fail-closed until beta data exceeds the current bounded first-page views.
+- This is a single-node beta, not a high-availability production claim.
 
-`uv run --project backend ruff check backend/app backend/tests scripts`
+## Hackathon tracks
 
-`uv run --project backend pytest backend/tests`
+- **Build It:** a complete evidence-first AIOps product built around OpenSearch ingestion, native RCF detection, deterministic incident processing, and safe investigations.
+- **Ship It:** a Compose-packaged, persistence-tested application prepared for a secure AWS deployment in Phase 10.
 
-OpenSearch 3.8 limits detector names to 64 characters. The readable detector name therefore uses the registered service name; the registry key and exact detector filter retain the full deterministic service ID.
+## Credits
+
+Built with OpenSearch, OpenSearch Data Prepper, OpenTelemetry, FastAPI, Pydantic, React, Vite, Recharts, HTTPX, Pytest, Ruff, and Vitest. Their respective licenses and upstream documentation govern those dependencies.
+
+OpenAI Codex was used as an AI coding assistant for implementation, test generation, debugging, and documentation. Architecture contracts, safety boundaries, validation evidence, and final changes were reviewed through deterministic tests and live checks rather than accepted as generated claims.
+
+Additional detail is available in the [submission write-up](docs/submission/WRITEUP.md), [architecture contracts](docs/architecture/PHASE_0_CONTRACTS.md), and [production blocker register](docs/architecture/PRODUCTION_BLOCKERS.md).
