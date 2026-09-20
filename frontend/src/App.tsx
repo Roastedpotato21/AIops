@@ -1,77 +1,51 @@
-import { useCallback, useEffect, useState } from 'react'
-import { loadPlatformStatus, type PlatformStatus } from './api'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { IncidentDetailPage } from './pages/IncidentDetailPage'
+import { IncidentsPage } from './pages/IncidentsPage'
+import { OverviewPage } from './pages/OverviewPage'
+import { ServicesPage } from './pages/ServicesPage'
+import { Loading } from './components/Common'
 import './styles.css'
 
-const emptyStatus: PlatformStatus = { health: null, readiness: null, error: null }
+const ServiceDetailPage = lazy(async () => {
+  const module = await import('./pages/ServiceDetailPage')
+  return { default: module.ServiceDetailPage }
+})
+
+function route(pathname: string) {
+  const incident = pathname.match(/^\/incidents\/(incident_[0-9a-f]{64})$/)
+  if (incident) return <IncidentDetailPage incidentId={incident[1]} />
+  const service = pathname.match(/^\/services\/(svc_[0-9a-f]{64})$/)
+  if (service) return <Suspense fallback={<Loading label="Loading service telemetry…" />}><ServiceDetailPage serviceId={service[1]} /></Suspense>
+  if (pathname === '/incidents') return <IncidentsPage />
+  if (pathname === '/services') return <ServicesPage />
+  return <OverviewPage />
+}
 
 export function App() {
-  const [status, setStatus] = useState(emptyStatus)
-  const [loading, setLoading] = useState(true)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    setStatus(await loadPlatformStatus())
-    setLoading(false)
-  }, [])
-
+  const [pathname, setPathname] = useState(window.location.pathname)
   useEffect(() => {
-    let active = true
-    void loadPlatformStatus().then((result) => {
-      if (active) {
-        setStatus(result)
-        setLoading(false)
-      }
-    })
-    return () => {
-      active = false
-    }
+    const update = () => setPathname(window.location.pathname)
+    window.addEventListener('popstate', update)
+    return () => window.removeEventListener('popstate', update)
   }, [])
-
-  const ready = status.readiness?.status === 'ready'
-
+  const navigate = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey) return
+    event.preventDefault()
+    window.history.pushState({}, '', event.currentTarget.href)
+    setPathname(window.location.pathname)
+  }
   return (
-    <main>
-      <section className="hero">
-        <p className="eyebrow">AIOPS · PHASE 1</p>
-        <h1>Foundation status</h1>
-        <p className="lede">Infrastructure compatibility and API readiness, without simulated incidents.</p>
-      </section>
-
-      {status.error ? <div className="alert" role="alert">{status.error}</div> : null}
-
-      <section className="status-grid" aria-label="Platform status">
-        <article className="panel">
-          <span className="label">API process</span>
-          <strong className={status.health ? 'ok' : 'unknown'}>
-            {loading ? 'Checking' : status.health?.status === 'ok' ? 'Live' : 'Unavailable'}
-          </strong>
-          <small>{status.health?.version ?? 'No response'}</small>
-        </article>
-        <article className="panel">
-          <span className="label">Platform readiness</span>
-          <strong className={ready ? 'ok' : 'unknown'}>
-            {loading ? 'Checking' : ready ? 'Ready' : 'Not ready'}
-          </strong>
-          <small>{status.readiness?.checked_at ?? 'No response'}</small>
-        </article>
-      </section>
-
-      <section className="checks" aria-label="Readiness checks">
-        <div className="section-heading">
-          <h2>Dependency checks</h2>
-          <button type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button>
-        </div>
-        {status.readiness?.checks.map((check) => (
-          <div className="check" key={check.name}>
-            <span>{check.name.replace('_', ' ')}</span>
-            <span className={check.state === 'pass' ? 'badge pass' : 'badge fail'}>
-              {check.state === 'pass' ? 'Pass' : check.reason_code?.replace('_', ' ') ?? 'Fail'}
-            </span>
-          </div>
-        )) ?? <p className="empty">Readiness details are unavailable.</p>}
-      </section>
-
-      <footer>Phase 1 shell · no detector, incident, or agent features are active.</footer>
-    </main>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <a className="brand" href="/" onClick={navigate}><span className="brand-mark">A</span><span>AIOps <span className="muted">/ beta</span></span></a>
+        <nav aria-label="Main navigation">
+          <a className={pathname === '/' ? 'active' : ''} href="/" onClick={navigate}>Overview</a>
+          <a className={pathname.startsWith('/services') ? 'active' : ''} href="/services" onClick={navigate}>Services</a>
+          <a className={pathname.startsWith('/incidents') ? 'active' : ''} href="/incidents" onClick={navigate}>Incidents</a>
+        </nav>
+        <p className="sidebar-foot"><span className="pulse" /> Local operations plane</p>
+      </aside>
+      <main>{route(pathname)}</main>
+    </div>
   )
 }
