@@ -292,6 +292,7 @@ class TelemetryRepository:
         trace_id: str | None,
         status: Literal["error", "ok"] | None,
         min_duration_ms: float | None,
+        kind: Literal["SERVER", "CLIENT", "INTERNAL", "PRODUCER", "CONSUMER"] | None,
         size: int,
     ) -> dict[str, Any]:
         filters: list[dict[str, Any]] = [
@@ -299,6 +300,8 @@ class TelemetryRepository:
         ]
         if service is not None:
             filters.extend(_service_filters(service))
+        if kind is not None:
+            filters.append({"term": {"kind": f"SPAN_KIND_{kind}"}})
         if trace_id is not None:
             filters.append({"term": {"traceId": trace_id}})
         if min_duration_ms is not None:
@@ -375,6 +378,7 @@ class TelemetryRepository:
         trace_id: str | None,
         status: Literal["error", "ok"] | None,
         min_duration_ms: float | None,
+        kind: Literal["SERVER", "CLIENT", "INTERNAL", "PRODUCER", "CONSUMER"] | None,
         limit: int,
     ) -> tuple[list[TelemetrySpan], QueryMetadata]:
         response = await self._query(
@@ -386,6 +390,7 @@ class TelemetryRepository:
                 trace_id=trace_id,
                 status=status,
                 min_duration_ms=min_duration_ms,
+                kind=kind,
                 size=limit + 1,
             ),
         )
@@ -423,6 +428,7 @@ class TelemetryRepository:
         trace_id: str | None = None,
         status: Literal["error", "ok"] | None = None,
         min_duration_ms: float | None = None,
+        kind: Literal["SERVER", "CLIENT", "INTERNAL", "PRODUCER", "CONSUMER"] | None = None,
         limit: int = 100,
     ) -> TelemetryQueryResult[TelemetrySpan]:
         start, end = self._window(start_time, end_time)
@@ -434,6 +440,7 @@ class TelemetryRepository:
             trace_id=trace_id,
             status=status,
             min_duration_ms=min_duration_ms,
+            kind=kind,
             limit=limit,
         )
         return TelemetryQueryResult[TelemetrySpan](items=spans, metadata=metadata)
@@ -494,6 +501,7 @@ class TelemetryRepository:
             trace_id=trace_id,
             status=None,
             min_duration_ms=None,
+            kind=None,
             limit=max_spans,
         )
         if not spans:
@@ -611,6 +619,7 @@ class TelemetryRepository:
             trace_id=None,
             status=None,
             min_duration_ms=None,
+            kind=None,
             limit=DEPENDENCY_SPAN_FETCH_LIMIT,
         )
         by_trace: dict[str, list[TelemetrySpan]] = defaultdict(list)

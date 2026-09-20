@@ -1,6 +1,6 @@
 # AIOps platform
 
-Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order calls Payment and then Inventory—and a profile-only load generator. Phase 3 adds real OpenTelemetry tracing, correlated JSON logs, and native request metrics to those services.
+Phase 1 establishes the platform shell and local telemetry infrastructure. Phase 2 adds a controlled demo request chain—Order calls Payment and then Inventory—and a profile-only load generator. Phase 3 adds real OpenTelemetry tracing, correlated JSON logs, and native request metrics to those services. Phase 4 provides bounded normalized telemetry reads. Phase 5 derives finalized one-minute service buckets and feeds native OpenSearch anomaly detectors.
 
 ## Prerequisites
 
@@ -77,3 +77,25 @@ After generating a normal order, use the bounded read-only inspector to verify a
 `docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm --no-deps --entrypoint python compatibility-probe scripts/inspect_phase3.py`
 
 The inspector prints only selected telemetry evidence and never prints OpenSearch credentials or request payloads.
+
+## Phase 5 aggregation and detection
+
+The persistent `aggregation-worker` reads only normalized completed spans through `TelemetryRepository`, waits 90 seconds after each minute, and writes deterministic service buckets. Detection requires at least 20 valid SERVER requests in a finalized minute. Empty and low-volume minutes are persisted as `insufficient`, never as healthy zeroes.
+
+Phase 5 uses deterministic nearest-rank p95: sort eligible millisecond durations and select rank `ceil(0.95 * n)`. This is tested at zero, one, repeated, minimum-sample, and skewed inputs. The Phase 5 completion report records its difference from the Phase 0 TDigest wording.
+
+Provision or reconcile the six native detectors after eligible buckets exist:
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm detector-provisioner`
+
+Run the bounded inspector to show recent buckets, native detector states, and normalized native results:
+
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools run --rm phase5-inspector`
+
+Focused host checks:
+
+`uv run --project backend ruff check backend/app backend/tests scripts`
+
+`uv run --project backend pytest backend/tests`
+
+OpenSearch 3.8 limits detector names to 64 characters. The readable detector name therefore uses the registered service name; the registry key and exact detector filter retain the full deterministic service ID.

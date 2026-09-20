@@ -44,10 +44,39 @@ services:
       OPENSEARCH_API_PASSWORD: ${OPENSEARCH_API_PASSWORD:?Set OPENSEARCH_API_PASSWORD}
       OPENSEARCH_DATA_PREPPER_USERNAME: ${OPENSEARCH_DATA_PREPPER_USERNAME:-data-prepper}
       OPENSEARCH_DATA_PREPPER_PASSWORD: ${OPENSEARCH_DATA_PREPPER_PASSWORD:?Set OPENSEARCH_DATA_PREPPER_PASSWORD}
+      OPENSEARCH_WORKER_USERNAME: ${OPENSEARCH_WORKER_USERNAME:-aiops-worker}
+      OPENSEARCH_WORKER_PASSWORD: ${OPENSEARCH_WORKER_PASSWORD:?Set OPENSEARCH_WORKER_PASSWORD}
     depends_on:
       opensearch:
         condition: service_healthy
     networks: [storage]
+
+  aggregation-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.workers.aggregation"]
+    environment:
+      AIOPS_ENVIRONMENT: development
+      AIOPS_BUILD_VERSION: phase5-aggregation
+      AIOPS_OPENSEARCH_URL: https://opensearch:9200
+      AIOPS_OPENSEARCH_USERNAME: ${OPENSEARCH_WORKER_USERNAME:-aiops-worker}
+      AIOPS_OPENSEARCH_PASSWORD: ${OPENSEARCH_WORKER_PASSWORD:?Set OPENSEARCH_WORKER_PASSWORD}
+      AIOPS_OPENSEARCH_VERIFY_TLS: "false"
+      AIOPS_AGGREGATION_COMPLETENESS_DELAY_SECONDS: ${AGGREGATION_COMPLETENESS_DELAY_SECONDS:-90}
+      AIOPS_AGGREGATION_POLL_SECONDS: ${AGGREGATION_POLL_SECONDS:-10}
+      AIOPS_AGGREGATION_MINIMUM_SAMPLES: ${AGGREGATION_MINIMUM_SAMPLES:-20}
+      AIOPS_WORKER_OWNER_ID: aggregation-worker-local
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   data-prepper:
     image: opensearchproject/data-prepper:2.16.0@sha256:6e74ebeddfd66549f623e6f3b8131111b34e85695f54bd68aac7563e80d6b546
@@ -282,6 +311,37 @@ services:
       otel-collector:
         condition: service_healthy
     networks: [telemetry, storage]
+
+  detector-provisioner:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "scripts.provision_detectors"]
+    environment:
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+      DETECTOR_WINDOW_DELAY_MINUTES: ${DETECTOR_WINDOW_DELAY_MINUTES:-3}
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+
+  phase5-inspector:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "scripts.inspect_phase5"]
+    environment:
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
+      OPENSEARCH_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:?Set OPENSEARCH_ADMIN_PASSWORD}
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
 
 networks:
   edge:

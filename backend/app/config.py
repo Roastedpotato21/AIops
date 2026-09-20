@@ -20,7 +20,15 @@ class Settings(BaseSettings):
     spans_read_alias: str = "otel-v1-apm-span"
     metrics_read_alias: str = "aiops-metrics-raw"
     service_map_read_alias: str = "otel-v1-apm-service-map"
+    service_metrics_alias: str = "aiops-service-metrics-v1"
+    anomalies_alias: str = "aiops-anomalies-v1"
+    detector_result_alias: str = "opensearch-ad-plugin-result-aiops-v1"
     opensearch_query_timeout_seconds: float = Field(default=5.0, gt=0, le=10)
+    aggregation_completeness_delay_seconds: int = Field(default=90, ge=60, le=600)
+    aggregation_poll_seconds: int = Field(default=10, ge=1, le=60)
+    aggregation_minimum_samples: int = Field(default=20, ge=1, le=1_000)
+    telemetry_sampling_fraction: float | None = Field(default=1.0, ge=0, le=1)
+    worker_owner_id: str = Field(default="aggregation-worker-local", min_length=1, max_length=128)
     frontend_origin: str = "http://127.0.0.1:4173"
 
     @model_validator(mode="after")

@@ -15,20 +15,30 @@ def password(length: int = 36) -> str:
 
 
 def main() -> None:
-    if ENV_FILE.exists():
-        print("Local .env already exists; left unchanged.")
-        return
-    lines = [
+    required = [
         "OPENSEARCH_ADMIN_USERNAME=admin",
         f"OPENSEARCH_ADMIN_PASSWORD={password()}",
         "OPENSEARCH_API_USERNAME=aiops-api",
         f"OPENSEARCH_API_PASSWORD={password()}",
         "OPENSEARCH_DATA_PREPPER_USERNAME=data-prepper",
         f"OPENSEARCH_DATA_PREPPER_PASSWORD={password()}",
-        "",
+        "OPENSEARCH_WORKER_USERNAME=aiops-worker",
+        f"OPENSEARCH_WORKER_PASSWORD={password()}",
     ]
-    ENV_FILE.write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    print("Generated ignored local .env credentials.")
+    existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
+    existing_keys = {
+        line.split("=", 1)[0]
+        for line in existing.splitlines()
+        if line and not line.startswith("#") and "=" in line
+    }
+    additions = [line for line in required if line.split("=", 1)[0] not in existing_keys]
+    if not additions:
+        print("Local .env credentials already complete; left unchanged.")
+        return
+    prefix = existing.rstrip("\n")
+    content = "\n".join(filter(None, [prefix, *additions, ""])) + "\n"
+    ENV_FILE.write_text(content, encoding="utf-8", newline="\n")
+    print("Generated missing ignored local .env credentials.")
 
 
 if __name__ == "__main__":
