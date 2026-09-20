@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     anomalies_alias: str = "aiops-anomalies-v1"
     incidents_alias: str = "aiops-incidents-v1"
     evidence_alias: str = "aiops-evidence-v1"
+    investigations_alias: str = "aiops-investigations-v1"
     detector_result_alias: str = "opensearch-ad-plugin-result-aiops-v1"
     opensearch_query_timeout_seconds: float = Field(default=5.0, gt=0, le=10)
     aggregation_completeness_delay_seconds: int = Field(default=90, ge=60, le=600)
@@ -36,6 +37,15 @@ class Settings(BaseSettings):
     )
     incident_poll_seconds: int = Field(default=10, ge=1, le=60)
     allow_development_fixtures: bool = False
+    llm_provider: str = Field(default="disabled", pattern=r"^[A-Za-z0-9._-]{1,63}$")
+    llm_model: str = Field(default="configured-model", min_length=1, max_length=128)
+    llm_api_key: SecretStr | None = None
+    investigation_poll_seconds: int = Field(default=5, ge=1, le=60)
+    investigation_worker_owner_id: str = Field(
+        default="investigation-worker-local", min_length=1, max_length=128
+    )
+    investigation_max_tool_calls: int = Field(default=8, ge=1, le=8)
+    investigation_deadline_seconds: int = Field(default=60, ge=1, le=60)
     frontend_origin: str = "http://127.0.0.1:4173"
 
     @model_validator(mode="after")

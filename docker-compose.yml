@@ -104,6 +104,35 @@ services:
       retries: 5
     restart: unless-stopped
 
+  investigation-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.workers.investigations"]
+    environment:
+      AIOPS_ENVIRONMENT: development
+      AIOPS_BUILD_VERSION: phase7-investigations
+      AIOPS_OPENSEARCH_URL: https://opensearch:9200
+      AIOPS_OPENSEARCH_USERNAME: ${OPENSEARCH_WORKER_USERNAME:-aiops-worker}
+      AIOPS_OPENSEARCH_PASSWORD: ${OPENSEARCH_WORKER_PASSWORD:?Set OPENSEARCH_WORKER_PASSWORD}
+      AIOPS_OPENSEARCH_VERIFY_TLS: "false"
+      AIOPS_LLM_PROVIDER: ${LLM_PROVIDER:-disabled}
+      AIOPS_LLM_MODEL: ${LLM_MODEL:-configured-model}
+      AIOPS_INVESTIGATION_POLL_SECONDS: ${INVESTIGATION_POLL_SECONDS:-5}
+      AIOPS_INVESTIGATION_MAX_TOOL_CALLS: ${INVESTIGATION_MAX_TOOL_CALLS:-8}
+      AIOPS_INVESTIGATION_DEADLINE_SECONDS: ${INVESTIGATION_DEADLINE_SECONDS:-60}
+      AIOPS_INVESTIGATION_WORKER_OWNER_ID: investigation-worker-local
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks: [storage]
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   data-prepper:
     image: opensearchproject/data-prepper:2.16.0@sha256:6e74ebeddfd66549f623e6f3b8131111b34e85695f54bd68aac7563e80d6b546
     environment:

@@ -4,12 +4,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.scheduling import InvestigationScheduler
 from app.api.health import router as health_router
 from app.api.incidents import router as incidents_router
+from app.api.investigations import router as investigations_router
 from app.config import get_settings
 from app.opensearch.client import OpenSearchReadinessClient
 from app.opensearch.query import OpenSearchQueryClient
 from app.repositories.incidents import OpenSearchIncidentRepository
+from app.repositories.investigations import InvestigationRepository
 
 
 @asynccontextmanager
@@ -19,6 +22,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.opensearch = OpenSearchReadinessClient(settings)
     app.state.query_client = OpenSearchQueryClient(settings)
     app.state.incident_repository = OpenSearchIncidentRepository(app.state.query_client, settings)
+    app.state.investigation_repository = InvestigationRepository(app.state.query_client, settings)
+    app.state.investigation_scheduler = InvestigationScheduler(
+        app.state.incident_repository,
+        app.state.investigation_repository,
+        settings,
+    )
     try:
         yield
     finally:
@@ -33,11 +42,12 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
         allow_credentials=False,
-        allow_methods=["GET"],
-        allow_headers=["Accept", "Content-Type", "X-Request-ID"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Accept", "Content-Type", "Idempotency-Key", "X-Request-ID"],
     )
     application.include_router(health_router)
     application.include_router(incidents_router)
+    application.include_router(investigations_router)
     return application
 
 

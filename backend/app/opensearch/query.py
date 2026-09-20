@@ -81,6 +81,7 @@ class OpenSearchQueryClient:
         refresh: bool = False,
         if_seq_no: int | None = None,
         if_primary_term: int | None = None,
+        create_only: bool = False,
     ) -> Mapping[str, Any]:
         params: dict[str, Any] = {"refresh": "wait_for"} if refresh else {}
         if if_seq_no is not None and if_primary_term is not None:
@@ -90,6 +91,8 @@ class OpenSearchQueryClient:
                     "if_primary_term": if_primary_term,
                 }
             )
+        if create_only:
+            params["op_type"] = "create"
         payload = await self.request(
             "PUT",
             f"/{index}/_doc/{document_id}",

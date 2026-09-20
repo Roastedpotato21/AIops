@@ -247,6 +247,55 @@ INCIDENT_MAPPINGS = {
     "latest_investigation_id": {"type": "keyword"},
     "policy_version": {"type": "keyword"},
     "fixture_source": {"type": "boolean"},
+    "scheduling_reservation": {"type": "object", "enabled": False},
+    "automatic_job_count": {"type": "integer"},
+    "user_job_count": {"type": "integer"},
+    "last_automatic_job_at": {"type": "date"},
+    "last_user_job_at": {"type": "date"},
+    "last_evidence_refresh_at": {"type": "date"},
+    "resolution_bucket_end": {"type": "date"},
+}
+
+INVESTIGATION_MAPPINGS = {
+    "schema_version": {"type": "keyword"},
+    "investigation_id": {"type": "keyword"},
+    "incident_id": {"type": "keyword"},
+    "evidence_bundle_id": {"type": "keyword"},
+    "evidence_version": {"type": "integer"},
+    "trigger": {"type": "keyword"},
+    "requested_by": {"type": "keyword"},
+    "idempotency_key_hash": {"type": "keyword"},
+    "request_body_sha256": {"type": "keyword"},
+    "requested_evidence_version": {"type": "integer"},
+    "state": {"type": "keyword"},
+    "attempt_count": {"type": "integer"},
+    "attempt_id": {"type": "keyword"},
+    "lease_owner": {"type": "keyword"},
+    "lease_expires_at": {"type": "date"},
+    "next_attempt_at": {"type": "date"},
+    "created_at": {"type": "date"},
+    "started_at": {"type": "date"},
+    "finished_at": {"type": "date"},
+    "updated_at": {"type": "date"},
+    "provider_id": {"type": "keyword"},
+    "model_id": {"type": "keyword"},
+    "prompt_version": {"type": "keyword"},
+    "tool_contract_version": {"type": "keyword"},
+    "additional_evidence_ids": {"type": "keyword"},
+    "tool_calls_used": {"type": "integer"},
+    "tool_executions": {"type": "object", "enabled": False},
+    "input_tokens": {"type": "integer"},
+    "output_tokens": {"type": "integer"},
+    "cost_usd": {"type": "double"},
+    "cost_limit_usd": {"type": "double"},
+    "additional_evidence_bytes": {"type": "integer"},
+    "last_error": {
+        "type": "object",
+        "dynamic": "strict",
+        "properties": FAILURE_MAPPING,
+    },
+    "report": {"type": "object", "enabled": False},
+    "fixture_source": {"type": "boolean"},
 }
 
 EVIDENCE_MAPPINGS = {
@@ -395,6 +444,18 @@ async def main() -> None:
             alias="aiops-evidence-v1",
             mappings=EVIDENCE_MAPPINGS,
         )
+        await ensure_product_index(
+            client,
+            index="aiops-investigations-v1-000001",
+            alias="aiops-investigations-v1",
+            mappings=INVESTIGATION_MAPPINGS,
+        )
+        await request(
+            client,
+            "PUT",
+            "/aiops-incidents-v1-000001/_mapping",
+            json={"properties": INCIDENT_MAPPINGS},
+        )
         await request(
             client,
             "PUT",
@@ -464,6 +525,7 @@ async def main() -> None:
                             "aiops-anomalies-v1*",
                             "aiops-incidents-v1*",
                             "aiops-evidence-v1*",
+                            "aiops-investigations-v1*",
                             "opensearch-ad-plugin-result-aiops-v1*",
                             "aiops-logs*",
                             "aiops-metrics-raw*",
@@ -471,7 +533,14 @@ async def main() -> None:
                             "otel-v1-apm-service-map*",
                         ],
                         "allowed_actions": ["read"],
-                    }
+                    },
+                    {
+                        "index_patterns": [
+                            "aiops-incidents-v1*",
+                            "aiops-investigations-v1*",
+                        ],
+                        "allowed_actions": ["write"],
+                    },
                 ],
                 "tenant_permissions": [],
             },
@@ -499,6 +568,7 @@ async def main() -> None:
                             "aiops-anomalies-v1*",
                             "aiops-incidents-v1*",
                             "aiops-evidence-v1*",
+                            "aiops-investigations-v1*",
                             "aiops-worker-state-v1",
                             "opensearch-ad-plugin-result-aiops-v1*",
                         ],

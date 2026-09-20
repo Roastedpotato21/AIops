@@ -65,7 +65,7 @@ class EvidenceCandidate:
     truncated: bool = False
 
 
-def _service_key(service: ServiceReference | TelemetryService) -> ServiceKey:
+def service_key_from_reference(service: ServiceReference | TelemetryService) -> ServiceKey:
     return ServiceKey(
         service_id=(
             service.service_id
@@ -78,12 +78,12 @@ def _service_key(service: ServiceReference | TelemetryService) -> ServiceKey:
     )
 
 
-def _span_snapshot(span) -> SpanSnapshot:
+def span_snapshot(span) -> SpanSnapshot:
     return SpanSnapshot(
         trace_id=span.trace_id,
         span_id=span.span_id,
         parent_span_id=span.parent_span_id,
-        service=_service_key(span.service),
+        service=service_key_from_reference(span.service),
         name=span.name[:256],
         span_kind=span.kind,
         start_time=span.start_time,
@@ -124,7 +124,7 @@ class TelemetryEvidenceCollector:
                         source=DocumentLocator(
                             index=log.source.index, document_id=log.source.document_id
                         ),
-                        service=_service_key(log.service),
+                        service=service_key_from_reference(log.service),
                         window=TimeRange(
                             start=log.event_time,
                             end=_instant_end(log.event_time),
@@ -134,7 +134,7 @@ class TelemetryEvidenceCollector:
                             event_time=log.event_time,
                             severity=log.severity,
                             body=body,
-                            service=_service_key(log.service),
+                            service=service_key_from_reference(log.service),
                             trace_id=log.trace_id,
                             span_id=log.span_id,
                             error_type=log.error_type,
@@ -155,13 +155,13 @@ class TelemetryEvidenceCollector:
                         source=DocumentLocator(
                             index=span.source.index, document_id=span.source.document_id
                         ),
-                        service=_service_key(span.service),
+                        service=service_key_from_reference(span.service),
                         window=TimeRange(start=span.start_time, end=span.end_time),
                         summary=(
                             f"{span.kind} span {span.name[:300]} status={span.status} "
                             f"duration_ms={span.duration_ms:.3f}"
                         ),
-                        snapshot=_span_snapshot(span),
+                        snapshot=span_snapshot(span),
                         template_id="error-spans-by-service",
                         index_alias=self._trace_alias,
                         matched_count=spans.metadata.matched_count,
@@ -175,7 +175,7 @@ class TelemetryEvidenceCollector:
                 if not result.items:
                     continue
                 trace = result.items[0]
-                trace_spans = [_span_snapshot(item) for item in trace.spans]
+                trace_spans = [span_snapshot(item) for item in trace.spans]
                 candidates.append(
                     EvidenceCandidate(
                         evidence_type="trace",
@@ -186,7 +186,7 @@ class TelemetryEvidenceCollector:
                         snapshot=TraceSnapshot(
                             trace_id=trace.trace_id,
                             window=TimeRange(start=trace.start_time, end=trace.end_time),
-                            services=[_service_key(item) for item in trace.services],
+                            services=[service_key_from_reference(item) for item in trace.services],
                             spans=trace_spans,
                             root_present=trace.root_present,
                             truncated=result.metadata.truncated,
@@ -273,7 +273,7 @@ def bucket_candidate(bucket: ServiceMetricBucket) -> EvidenceCandidate:
     )
 
 
-def _make_item(
+def make_evidence_item(
     incident_id: str,
     candidate: EvidenceCandidate,
     *,
@@ -362,7 +362,7 @@ def build_bundle(
     total = 0
     truncated = False
     for candidate in candidates:
-        item = _make_item(incident_id, candidate, created_at=created_at)
+        item = make_evidence_item(incident_id, candidate, created_at=created_at)
         if len(selected) >= min(max_items, ITEM_COUNT_LIMIT) or total + item.stored_bytes > min(
             max_bytes, BUNDLE_LIMIT
         ):

@@ -63,6 +63,24 @@ class RelatedIncident(TelemetryModel):
     _linked_at = field_validator("linked_at")(validate_utc_timestamp)
 
 
+class SchedulingReservation(TelemetryModel):
+    investigation_id: str = Field(pattern=r"^inv_[0-9a-f]{64}$")
+    trigger: Literal["automatic", "user"]
+    principal_id: str = Field(min_length=1, max_length=128)
+    idempotency_key_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    request_body_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requested_evidence_version: int | None = Field(default=None, ge=1)
+    resolved_evidence_bundle_id: str = Field(pattern=r"^bundle_[0-9a-f]{64}$")
+    resolved_evidence_version: int = Field(ge=1)
+    reserved_at: str
+    provider_id: str = Field(min_length=1, max_length=63)
+    model_id: str = Field(min_length=1, max_length=128)
+    prompt_version: str = Field(pattern=VERSION_PATTERN)
+    tool_contract_version: str = Field(pattern=VERSION_PATTERN)
+
+    _reserved_at = field_validator("reserved_at")(validate_utc_timestamp)
+
+
 class Incident(TelemetryModel):
     schema_version: str = Field(default="1.0.0", pattern=VERSION_PATTERN)
     incident_id: str = Field(pattern=r"^incident_[0-9a-f]{64}$")
@@ -93,6 +111,13 @@ class Incident(TelemetryModel):
     evidence_version: int = Field(default=0, ge=0)
     evidence_status: EvidenceStatus = "pending"
     latest_investigation_id: str | None = Field(default=None, pattern=r"^inv_[0-9a-f]{64}$")
+    scheduling_reservation: SchedulingReservation | None = None
+    automatic_job_count: int = Field(default=0, ge=0, le=5)
+    user_job_count: int = Field(default=0, ge=0, le=5)
+    last_automatic_job_at: str | None = None
+    last_user_job_at: str | None = None
+    last_evidence_refresh_at: str | None = None
+    resolution_bucket_end: str | None = None
     policy_version: str = Field(default="1.0.0", pattern=VERSION_PATTERN)
     fixture_source: bool = False
 
@@ -103,6 +128,10 @@ class Incident(TelemetryModel):
     _recovering = field_validator("recovering_since")(validate_optional_utc_timestamp)
     _resolved = field_validator("resolved_at")(validate_optional_utc_timestamp)
     _recovery_end = field_validator("last_recovery_bucket_end")(validate_optional_utc_timestamp)
+    _last_automatic = field_validator("last_automatic_job_at")(validate_optional_utc_timestamp)
+    _last_user = field_validator("last_user_job_at")(validate_optional_utc_timestamp)
+    _last_refresh = field_validator("last_evidence_refresh_at")(validate_optional_utc_timestamp)
+    _resolution_end = field_validator("resolution_bucket_end")(validate_optional_utc_timestamp)
 
     @model_validator(mode="after")
     def validate_identity(self) -> "Incident":

@@ -79,6 +79,19 @@ class OpenSearchIncidentRepository:
     async def get_incident(self, incident_id: str) -> Incident | None:
         return await self._get_model(self._incidents, incident_id, Incident)
 
+    async def get_incident_record(self, incident_id: str) -> tuple[Incident, int, int] | None:
+        try:
+            response = await self._client.get_document(self._incidents, incident_id)
+            if response is None:
+                return None
+            return (
+                Incident.model_validate(response["_source"]),
+                int(response["_seq_no"]),
+                int(response["_primary_term"]),
+            )
+        except (OpenSearchQueryFailure, KeyError, TypeError, ValueError, ValidationError) as exc:
+            raise TelemetryRepositoryError("unavailable", retryable=True) from exc
+
     async def get_active_incident(self, service_id: str, feature: str) -> Incident | None:
         hits = await self._search(
             self._incidents,
@@ -116,16 +129,8 @@ class OpenSearchIncidentRepository:
                 "query": {
                     "bool": {
                         "filter": [
-                            {
-                                "term": {
-                                    "primary_service.namespace": namespace
-                                }
-                            },
-                            {
-                                "term": {
-                                    "primary_service.environment": environment
-                                }
-                            },
+                            {"term": {"primary_service.namespace": namespace}},
+                            {"term": {"primary_service.environment": environment}},
                             {
                                 "range": {
                                     "first_affected_at": {
@@ -145,6 +150,21 @@ class OpenSearchIncidentRepository:
     async def save_incident(self, incident: Incident) -> None:
         await self._put(self._incidents, incident.incident_id, incident.model_dump(mode="json"))
 
+    async def save_incident_cas(self, incident: Incident, *, concurrency: tuple[int, int]) -> None:
+        try:
+            await self._client.put_document(
+                self._incidents,
+                incident.incident_id,
+                incident.model_dump(mode="json"),
+                refresh=True,
+                if_seq_no=concurrency[0],
+                if_primary_term=concurrency[1],
+            )
+        except OpenSearchQueryFailure as exc:
+            raise TelemetryRepositoryError(
+                "unavailable", retryable=exc.code == "unavailable"
+            ) from exc
+
     async def save_anomaly(self, anomaly: NormalizedAnomaly) -> None:
         await self._put(self._anomalies, anomaly.anomaly_id, anomaly.model_dump(mode="json"))
 
@@ -152,6 +172,35 @@ class OpenSearchIncidentRepository:
         for item in items:
             await self._put(self._evidence, item.evidence_id, item.model_dump(mode="json"))
         await self._put(self._evidence, bundle.bundle_id, bundle.model_dump(mode="json"))
+
+    async def save_evidence_items(self, items: list[EvidenceItem]) -> None:
+        for item in items:
+            await self._put(self._evidence, item.evidence_id, item.model_dump(mode="json"))
+
+    async def metric_buckets(
+        self,
+        service_ids: list[str],
+        start: str,
+        end: str,
+        *,
+        limit: int,
+    ) -> list[ServiceMetricBucket]:
+        hits = await self._search(
+            self._metrics,
+            {
+                "size": limit,
+                "query": {
+                    "bool": {
+                        "filter": [
+                            {"terms": {"service.service_id": service_ids}},
+                            {"range": {"window.start": {"gte": start, "lt": end}}},
+                        ]
+                    }
+                },
+                "sort": [{"window.start": "asc"}, {"bucket_id": "asc"}],
+            },
+        )
+        return self._models(hits, ServiceMetricBucket)
 
     async def pending_anomalies(self, limit: int = 100) -> list[NormalizedAnomaly]:
         hits = await self._search(
