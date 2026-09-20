@@ -2,7 +2,7 @@
 
 ## Outcome
 
-**PARTIAL** — deterministic one-minute aggregation, replay/late-data handling, six real OpenSearch RCF detectors, controlled latency/error feature changes, and the native-result adapter are implemented. Native detectors remained in real RCF warm-up, so no positive latency or error anomaly was observed and no such result was fabricated.
+**FUNCTIONALLY COMPLETE / LIVE VALIDATION PENDING** — deterministic one-minute aggregation, replay/late-data handling, six real OpenSearch RCF detectors, controlled latency/error feature changes, and the native-result adapter are implemented. Under the deadline authorization, native positive-anomaly verification remains pending and no result was fabricated.
 
 ## Scope implemented
 
@@ -24,7 +24,7 @@ No incident creation, severity, correlation, evidence bundles, agent/provider in
 - Bootstrap reran idempotently multiple times. Detector provisioning reran twice with the same six native IDs.
 - API `/health` returned `ok`; `/ready` returned `ready` during the live run.
 - Aggregation worker was healthy and published through its least-privilege runtime identity after the exact bulk permission was verified.
-- The Collector process remained available and the live telemetry evidence was persisted, but its Docker health check was `unhealthy`: the `otelcol-contrib components` probe exceeded its five-second timeout while printing the component manifest. This is a health-probe defect, not evidence of a Collector process or OTLP pipeline failure.
+- The Collector health check was corrected without changing its pipelines: a pinned BusyBox `wget` binary now performs a bounded two-second HTTP check against the already-configured `health_check` extension on port 13133. The rebuilt Collector reported `healthy`; the aggregation worker remained healthy.
 
 ## Metric-bucket evidence
 
@@ -60,34 +60,35 @@ Six real detectors were provisioned and started. Consecutive provisioner runs re
 - Payment latency `xXi9uqABewDwCa_DmR_E`; errors `0ni9uqABewDwCa_DnR_y`.
 - Inventory latency `33i9uqABewDwCa_DoR_4`; errors `1ni9uqABewDwCa_DpiAM`.
 
-The payment profiles were genuinely `INIT`, 0%, estimated 32 minutes, with 32 needed shingles. When current eligible input stopped, the plugin reported no data in the current window; the product projection maps that condition to `insufficient_data`, not healthy or ready.
+The payment profiles were genuinely `INIT`, 0%, estimated 32 minutes, with 32 needed shingles. A later normal-only run produced current complete/eligible buckets for all three services. Deadline mode stopped periodic profile polling before a READY transition was captured. When eligible input is absent, the plugin reports no data in the current window; the product projection maps that condition to `insufficient_data`, not healthy or ready.
 
 ## Real latency anomaly result
 
-Not observed. The real latency scenario materially changed the detector feature from the normal range to approximately 754 ms, but the native RCF model was still warming. No positive result was inserted or fabricated.
+Pending under deadline mode. The earlier real latency scenario materially changed the detector feature from the normal range to approximately 754 ms, but the native RCF model was still warming. A post-readiness positive native result and its normalized record were not claimed or fabricated.
 
 ## Real error anomaly result
 
-Not observed. The real error scenario changed payment error_rate from 0.0 to 1.0 in two eligible finalized buckets, but the native RCF model was still warming. No positive result was inserted or fabricated.
+Pending under deadline mode. The earlier real error scenario changed payment error_rate from 0.0 to 1.0 in two eligible finalized buckets, but the native RCF model was still warming. A post-readiness positive native result and its normalized record were not claimed or fabricated.
 
 ## Warm-up and data-quality findings
 
 - Native OpenSearch 3.8 warm-up was longer than the eight configured input shingle: the profile explicitly requested 32 initialization shingles and estimated 32 minutes.
+- The deadline-mode continuation established live complete/eligible buckets for Order, Payment, and Inventory. A detached normal-only continuation was launched; Docker Desktop API instability later prevented replacing it with a six-hour run. The normal load profile and command remain available, while exhaustive polling and fault replay were stopped by explicit authorization.
 - Normal traffic created correct complete/eligible data after the SERVER-kind source filter prevented unrelated CLIENT spans from exhausting the normalized query bound.
 - Historical pre-fix partial buckets stayed partial and ineligible as required by immutable-finalization semantics.
 - Native results became available during warm-up and exercised the real result query/adapter/write path. The strict normalized write caught a missing additive mapping update; source now applies the canonical nested processing mapping to existing indexes before normalization. The final live inspector exited successfully and the normalized index contained 136 deterministic results, all `failed` with null grade/confidence because the native source results explicitly reported no data in their current windows; each retained its exact input bucket ID. These are operational detector results, not positive anomalies.
 
-## Contract deviations
+## Contract resolutions
 
-1. Phase 0 specifies OpenSearch TDigest compression 100 for p95, while the Phase 5 handoff requires a deterministic documented percentile. This implementation follows the later handoff with nearest-rank p95; it is not claimed equivalent to TDigest and requires explicit contract reconciliation.
-2. Phase 0's detector-name formula containing the full 68-character service ID exceeds OpenSearch 3.8's enforced 64-character detector-name limit. Names use the unique registered service name (`aiops-payment-service-latency-v1`, for example); the full deterministic service ID remains in the registry key and exact detector filter.
-3. Where the handoff says `insufficient_data` for bucket quality and `created_at`, the authoritative Phase 0 domain model uses `quality_status=insufficient` and `computed_at`/`finalized_at`; the implementation preserves Phase 0 spelling. Detector status still uses `insufficient_data`.
-4. A pre-correction local development bootstrap mapped `aiops-worker-state-v1.last_error` as keyword. Clean bootstrap source now creates the required structured Failure object and preserves the existing local volume non-destructively; writing a non-null structured worker failure to that legacy local index remains a local migration blocker.
+1. The implemented deterministic nearest-rank p95 is retained for the current beta. The older Phase 0 TDigest wording is superseded by the approved Phase 5 implementation contract for this release.
+2. Shortened detector display names are retained because OpenSearch 3.8 enforces a 64-character name limit. Deterministic service identity, registry keys, and exact detector filters remain unchanged.
+3. Phase 0 canonical field names already implemented (`quality_status=insufficient`, `computed_at`, and `finalized_at`) are preserved. Detector status continues to use `insufficient_data`.
+4. The legacy local `aiops-worker-state-v1.last_error` keyword mapping did not block current operation. No destructive migration was performed; local-volume cleanup remains deferred to Phase 9.
 
 ## Remaining blocker
 
-Phase 5 cannot be marked PASS until sustained eligible baseline traffic completes native RCF initialization and real positive latency/error anomaly results are observed and normalized. The additive `processing` mapping and normalized write were verified on the preserved volume; the principal blocker is native model warm-up and positive-result evidence. The Collector's over-expensive Docker health probe also needs a narrow correction in the authorized hardening scope. No incident logic should begin before these Phase 5 checks are complete.
+There is no remaining Phase 5 implementation blocker. Genuine post-readiness positive latency and error anomaly evidence, including native and normalized IDs, remains an explicit live-validation item deferred by deadline authorization. Noncritical soak, persistence, and exhaustive regression checks also remain deferred. The Collector health-probe blocker is resolved.
 
 ## Phase boundary
 
-STOP. Do not begin Phase 6 automatically.
+STOP. Await a separate Phase 6 handoff; do not begin Phase 6 automatically.

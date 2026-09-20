@@ -113,7 +113,10 @@ services:
     restart: "no"
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    image: aiops-otel-collector:phase5
+    build:
+      context: .
+      dockerfile: infra/otel/Dockerfile
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./infra/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -125,7 +128,7 @@ services:
         condition: service_completed_successfully
     networks: [telemetry]
     healthcheck:
-      test: ["CMD", "/otelcol-contrib", "components"]
+      test: ["CMD", "/wget", "-q", "-T", "2", "-O", "/dev/null", "http://127.0.0.1:13133/"]
       interval: 15s
       timeout: 5s
       retries: 5
