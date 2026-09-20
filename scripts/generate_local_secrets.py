@@ -24,6 +24,12 @@ def main() -> None:
         f"OPENSEARCH_DATA_PREPPER_PASSWORD={password()}",
         "OPENSEARCH_WORKER_USERNAME=aiops-worker",
         f"OPENSEARCH_WORKER_PASSWORD={password()}",
+        "OPENSEARCH_AGGREGATION_WORKER_USERNAME=aiops-aggregation-worker",
+        f"OPENSEARCH_AGGREGATION_WORKER_PASSWORD={password()}",
+        "OPENSEARCH_INCIDENT_WORKER_USERNAME=aiops-incident-worker",
+        f"OPENSEARCH_INCIDENT_WORKER_PASSWORD={password()}",
+        "OPENSEARCH_INVESTIGATION_WORKER_USERNAME=aiops-investigation-worker",
+        f"OPENSEARCH_INVESTIGATION_WORKER_PASSWORD={password()}",
     ]
     existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
     existing_keys = {

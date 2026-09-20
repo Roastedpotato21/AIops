@@ -7,7 +7,9 @@ Phase 1 establishes the platform shell and local telemetry infrastructure. Phase
 - Docker Desktop using Linux containers, with at least 8 GiB available to Docker.
 - Docker Compose v2.
 - Python 3.12 through `uv`.
-- Node.js 24 LTS and npm for host-side frontend checks.
+- Node.js 24.21.0 and npm for host-side frontend checks. The digest-pinned
+  Node 24.21.0 frontend container is the authoritative build environment;
+  older host runtimes are not release evidence.
 - On Linux/WSL, OpenSearch requires `vm.max_map_count=262144`. Check it before startup; do not change host settings without understanding the impact.
 
 ## Local setup

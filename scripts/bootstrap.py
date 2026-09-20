@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+from app.opensearch.roles import WORKER_ROLES
 
 BASE = os.environ.get("OPENSEARCH_URL", "https://opensearch:9200")
 ADMIN = (
@@ -554,50 +555,56 @@ async def main() -> None:
                 "opendistro_security_roles": ["aiops_api_role"],
             },
         )
+        worker_identities = {
+            "aiops_aggregation_worker_role": (
+                os.environ["OPENSEARCH_AGGREGATION_WORKER_USERNAME"],
+                os.environ["OPENSEARCH_AGGREGATION_WORKER_PASSWORD"],
+            ),
+            "aiops_incident_worker_role": (
+                os.environ["OPENSEARCH_INCIDENT_WORKER_USERNAME"],
+                os.environ["OPENSEARCH_INCIDENT_WORKER_PASSWORD"],
+            ),
+            "aiops_investigation_worker_role": (
+                os.environ["OPENSEARCH_INVESTIGATION_WORKER_USERNAME"],
+                os.environ["OPENSEARCH_INVESTIGATION_WORKER_PASSWORD"],
+            ),
+        }
+        for role_name, role_spec in WORKER_ROLES.items():
+            username, password = worker_identities[role_name]
+            await request(
+                client,
+                "PUT",
+                f"/_plugins/_security/api/roles/{role_name}",
+                json=role_spec,
+            )
+            await request(
+                client,
+                "PUT",
+                f"/_plugins/_security/api/internalusers/{username}",
+                json={
+                    "password": password,
+                    "opendistro_security_roles": [role_name],
+                },
+            )
+            await request(
+                client,
+                "PUT",
+                f"/_plugins/_security/api/rolesmapping/{role_name}",
+                json={"backend_roles": [], "hosts": [], "users": [username]},
+            )
+        # Retain the legacy identity without privileges so preserved local
+        # credentials cannot bypass the split runtime roles.
         await request(
             client,
             "PUT",
             "/_plugins/_security/api/roles/aiops_worker_role",
-            json={
-                "cluster_permissions": ["cluster_monitor", "indices:data/write/bulk*"],
-                "index_permissions": [
-                    {
-                        "index_patterns": [
-                            "otel-v1-apm-span*",
-                            "aiops-service-metrics-v1*",
-                            "aiops-anomalies-v1*",
-                            "aiops-incidents-v1*",
-                            "aiops-evidence-v1*",
-                            "aiops-investigations-v1*",
-                            "aiops-worker-state-v1",
-                            "opensearch-ad-plugin-result-aiops-v1*",
-                        ],
-                        "allowed_actions": [
-                            "indices_all",
-                        ],
-                    }
-                ],
-                "tenant_permissions": [],
-            },
-        )
-        await request(
-            client,
-            "PUT",
-            f"/_plugins/_security/api/internalusers/{os.environ['OPENSEARCH_WORKER_USERNAME']}",
-            json={
-                "password": os.environ["OPENSEARCH_WORKER_PASSWORD"],
-                "opendistro_security_roles": ["aiops_worker_role"],
-            },
+            json={"cluster_permissions": [], "index_permissions": [], "tenant_permissions": []},
         )
         await request(
             client,
             "PUT",
             "/_plugins/_security/api/rolesmapping/aiops_worker_role",
-            json={
-                "backend_roles": [],
-                "hosts": [],
-                "users": [os.environ["OPENSEARCH_WORKER_USERNAME"]],
-            },
+            json={"backend_roles": [], "hosts": [], "users": []},
         )
         await request(
             client,

@@ -88,8 +88,49 @@ These observations prove the previously built local API/frontend remained reacha
 
 ## Phase 10 readiness
 
-**BLOCKED.** Repair Docker/build reliability; complete current-image stack startup, genuine RCF validation, live Phase 6 and Phase 7 paths, full end-to-end/browser acceptance, restart/outage checks, least-privilege worker roles, retention enforcement, and the TLS/auth edge before EC2/public deployment.
+**BLOCKED.** Repair Docker/build reliability; complete current-image stack startup, live Phase 6 and Phase 7 paths, persisted end-to-end/UI acceptance, restart validation, and live least-privilege worker authorization checks before beginning Phase 10. Genuine RCF validation may remain pending only if native warm-up is the sole remaining product blocker. Retention enforcement and the TLS/auth edge remain mandatory Phase 10 completion requirements before EC2/public deployment.
 
 ## Phase boundary
 
 STOP. Do not begin Phase 10 automatically.
+
+## Continuation attempt — 2026-09-20
+
+The authorized continuation did not restart Phase 9 from the beginning. Previously passing regression evidence remained valid.
+
+### Docker diagnosis
+
+- Initial `docker version` and Compose project inspection succeeded. OpenSearch, Data Prepper, Collector, aggregation worker, incident worker, demo services, API, and frontend reported running/healthy; the investigation worker transitioned to healthy during inspection.
+- `docker buildx ls` hung while normal runtime inspection still worked, isolating the first fault to BuildKit/control-plane state.
+- A classic-builder attempt stalled sending the OneDrive workspace context. A running-image inspection then hung, proving broader API degradation.
+- The single authorized `docker desktop restart` completed and restored `docker version`. Inspection then proved the running investigation image was stale and did not contain `DeterministicDevelopmentProvider`.
+- One post-restart classic build transferred the full 24.51 MB context, pulled pinned bases, and installed all 40 locked packages, then stalled indefinitely while committing the dependency layer. It was interrupted after bounded polling.
+- A no-build, read-only source-mounted bootstrap attempt then failed with Docker's own `500 Internal Server Error` on the Linux-engine `/_ping` endpoint. No second restart or repeated build was attempted. The static frontend still returned 200, while the API timed out after the engine failure.
+- The single near-end status revisit also produced no `docker version` output within 30 seconds and was interrupted. The engine was left unmodified for diagnosis; no further Docker action was taken.
+
+Diagnosis: application tests and dependency resolution are healthy; Docker Desktop's Linux-engine/storage/export path becomes unresponsive during image-layer operations, with the OneDrive-backed workspace a likely contributing factor. The required next environment correction is Docker repair or a non-OneDrive local build workspace, not an application workaround.
+
+### Worker permission hardening
+
+- Added separate aggregation, incident, and investigation credentials and Compose wiring. Missing local values were generated into ignored `.env` without disclosure.
+- Added exact role specifications with no cluster permissions and only `read`/`write` index action groups:
+  - aggregation reads native spans and reads/writes service buckets plus its state;
+  - incident reads required telemetry/product inputs and writes anomalies, incidents, evidence, and its state;
+  - investigation reads incident/evidence/telemetry inputs and writes only investigation jobs and derived evidence.
+- Bootstrap now empties and unmaps the legacy broad `aiops_worker_role`, preventing the preserved shared credential from bypassing the split.
+- Added a live permission checker that requires each intended read to return 200 and a representative forbidden write to return 403.
+- Focused result: `4 passed` role-policy tests; config/health plus role tests `9 passed`; compilation and focused Ruff passed; Compose rendered successfully without printing secrets.
+- Live bootstrap and authorization checks remain blocked because Docker failed before the current source could run against OpenSearch. Therefore the production blocker is narrowed but not closed.
+
+### Live acceptance disposition
+
+- Phase 6 fixture path: not run; current incident-worker image could not be built/recreated with the split identity.
+- Phase 7 deterministic path: not run; running image was conclusively stale.
+- UI persisted-record path: not run; no live incident/investigation record was available. Browser automation was not relaunched.
+- RCF inspection: not run after the Docker failure; no positive result is claimed.
+- Restart/persistence: not run because the one Docker Desktop restart was environment recovery, not a controlled project restart with before/after IDs.
+- OpenSearch outage: not run; Docker was not stable enough to safely stop and guarantee restoration of the service.
+
+### Continuation outcome
+
+**BLOCKED.** The permission defect is fixed in source and focused tests, but Docker prevented application of the roles and every required live product check. Phase 10 remains blocked until a stable engine can build/recreate the current workers and the live checks in the production-blocker register pass. TLS/auth remain Phase 10 implementation work and are not, by themselves, a prerequisite for beginning Phase 10.
