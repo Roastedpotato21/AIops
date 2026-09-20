@@ -2,7 +2,7 @@
 
 ## Outcome
 
-**PASS — IMPLEMENTATION AND CREDENTIAL-FREE CRITICAL PATH COMPLETE; LIVE CONTAINER CHECK NOT RUN.** Persisted asynchronous investigation jobs, bounded read-only tools, an interchangeable provider boundary, evidence-linked structured reports, and the investigation APIs are implemented. The deterministic provider exercised the complete application path without representing fixture output as a live AI or genuine RCF result.
+**PASS — IMPLEMENTATION AND LIVE CREDENTIAL-FREE CRITICAL PATH COMPLETE.** Persisted asynchronous investigation jobs, bounded read-only tools, an interchangeable provider boundary, evidence-linked structured reports, and the investigation APIs pass focused tests and live container validation. The deterministic provider is visibly non-external and does not represent fixture output as genuine RCF evidence.
 
 ## Scope implemented
 
@@ -17,17 +17,17 @@ No anomaly, incident-creation, remediation, shell, filesystem, arbitrary URL/DSL
 
 ## Focused tests and checks
 
-- `uv run --project backend pytest backend/tests/test_investigation.py -q`: **11 passed**, with two upstream Starlette/httpx deprecation warnings.
+- `uv run --project backend pytest backend/tests/test_investigation.py -q`: **15 passed**, with two upstream Starlette/httpx deprecation warnings.
 - Directly affected shared boundary: `uv run --project backend pytest backend/tests/test_incidents.py backend/tests/test_config.py backend/tests/test_health.py -q`: **15 passed**, with the same two upstream warnings.
 - Focused/full backend Ruff boundary over `backend/app`, the Phase 7 test, and bootstrap: **passed**.
 - Python compilation for the worker and bootstrap: **passed**.
 - `docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet`: **passed**.
-- Docker daemon/container validation: **not run** after Compose state and `docker version` calls produced no result within the bounded 30-second checks. The pending call was interrupted safely.
+- Live API scheduling returned 202; the private worker claimed the persisted job, performed the allowlisted deterministic read, persisted a validated report, and the GET API returned 200.
 - Full Phase 1–6 regression: **not run**, per deadline verification policy.
 
 ## Investigation job result
 
-The focused HTTP path returned 202 with a deterministic `inv_` ID and `Location`, then retrieved the persisted queued job. The worker claimed it exactly once, retained the pinned evidence bundle/version and fixture provenance, and persisted the validated report as succeeded. Equivalent requests return the existing job; distinct requests are bounded by the active-job and per-incident quota policies. Retryable provider failures wait before reclaim and stop as failed after three attempts while leaving the incident unchanged.
+The live HTTP path returned 202 and queued `inv_2ab43c9632d668dd0b755814e7fe842a7a59158b22dea9bd9eca20547c52ebaf`. A live-only defect was fixed: claim searches now request OpenSearch sequence/primary-term metadata for CAS, and persisted JSON UUIDs are hydrated through strict JSON validation. The worker reclaimed the expired first lease and completed on attempt 2. The final state is `succeeded`, with pinned evidence `ev_55c39adfeb6866e718e160a720d5011ebcc9b63d91ebb5e5827a150a7554118c`, low confidence, no root-cause claim, no executed remediation, and `completion_status=insufficient_evidence`.
 
 ## Tool and evidence safety
 
@@ -47,9 +47,8 @@ None. The API uses an `Idempotency-Key` header to supply the principal-scoped id
 
 ## Remaining blockers and deferred checks
 
-- Docker Desktop did not respond, so live bootstrap, investigation-worker startup, OpenSearch persistence, and container API retrieval remain deferred to the full-system hardening/regression phase.
 - The OpenAI adapter has not been live-validated because no credential was authorized; this is an explicit credential checkpoint, not an implementation shortcut.
-- The Phase 6 live-container validation blocker remains unchanged.
+- Genuine native RCF positive input remains pending; the accepted live report retains fixture provenance and explicit non-external/non-RCF limitations.
 
 ## Phase boundary
 

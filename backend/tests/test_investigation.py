@@ -37,6 +37,7 @@ from app.models.investigation import (
     ToolContext,
     ToolResponse,
 )
+from app.repositories.investigations import InvestigationRepository
 from app.workers.investigations import provider_from_settings, run_once
 
 
@@ -162,6 +163,24 @@ class StaticBackend:
         self.incident_id = incident_id
 
 
+@pytest.mark.asyncio
+async def test_claim_query_requests_cas_metadata():
+    class SearchClient:
+        async def search(self, index, body):
+            self.index = index
+            self.body = body
+            return {"hits": {"hits": []}}
+
+    client = SearchClient()
+    repository = InvestigationRepository(
+        client, SimpleNamespace(investigations_alias="aiops-investigations-v1")
+    )
+
+    assert await repository.claim_next(owner="worker", now=NOW) is None
+    assert client.index == "aiops-investigations-v1"
+    assert client.body["seq_no_primary_term"] is True
+
+
 async def phase7_fixture():
     _, trigger, base = setup_data()
     repository = SchedulingIncidents(list(base.buckets.values()))
@@ -171,6 +190,39 @@ async def phase7_fixture():
     bundle = repository.bundles[incident.latest_evidence_bundle_id]
     items = [repository.items[item_id] for item_id in bundle.evidence_ids]
     return repository, incident, bundle, items
+
+
+@pytest.mark.asyncio
+async def test_repository_hydrates_persisted_uuid_from_json():
+    incidents, incident, _, _ = await phase7_fixture()
+    jobs = MemoryJobs()
+    job = await InvestigationScheduler(incidents, jobs, Settings()).schedule(
+        incident.incident_id,
+        InvestigationCreate(),
+        principal_id="local-api",
+        idempotency_key="json-round-trip",
+        now=NOW,
+    )
+    running = job.model_copy(update={"state": "running", "attempt_id": uuid4()})
+
+    class ReadClient:
+        async def get_document(self, index, document_id):
+            assert index == "aiops-investigations-v1"
+            assert document_id == running.investigation_id
+            return {
+                "_source": running.model_dump(mode="json"),
+                "_seq_no": 3,
+                "_primary_term": 1,
+            }
+
+    repository = InvestigationRepository(
+        ReadClient(), SimpleNamespace(investigations_alias="aiops-investigations-v1")
+    )
+    restored = await repository.get_job(running.investigation_id)
+
+    assert restored is not None
+    assert restored[0].attempt_id == running.attempt_id
+    assert restored[1:] == (3, 1)
 
 
 def provenance(incident, bundle):
@@ -528,6 +580,7 @@ async def test_prompt_injection_log_text_cannot_expand_permissions():
 
 @pytest.mark.asyncio
 async def test_worker_claims_once_persists_report_and_api_view_boundary():
+    worker_now = datetime.now(UTC)
     incidents, incident, bundle, _ = await phase7_fixture()
     jobs = MemoryJobs()
     scheduler = InvestigationScheduler(incidents, jobs, Settings())
@@ -536,7 +589,7 @@ async def test_worker_claims_once_persists_report_and_api_view_boundary():
         InvestigationCreate(),
         principal_id="local-api",
         idempotency_key="worker-path",
-        now=NOW,
+        now=worker_now,
     )
     provider = DeterministicTestProvider(
         [
@@ -553,8 +606,8 @@ async def test_worker_claims_once_persists_report_and_api_view_boundary():
         StaticBackend(None),
         provider,
         Settings(),
-        now=NOW,
-        clock=lambda: NOW,
+        now=worker_now,
+        clock=lambda: worker_now,
     )
     assert processed == 1
     assert await run_once(
@@ -563,8 +616,8 @@ async def test_worker_claims_once_persists_report_and_api_view_boundary():
         StaticBackend(None),
         provider,
         Settings(),
-        now=NOW,
-        clock=lambda: NOW,
+        now=worker_now,
+        clock=lambda: worker_now,
     ) == 0
     assert jobs.jobs[job.investigation_id].state == "succeeded"
     view = await scheduler.view(job.investigation_id)
@@ -574,6 +627,7 @@ async def test_worker_claims_once_persists_report_and_api_view_boundary():
 
 @pytest.mark.asyncio
 async def test_provider_failures_retry_with_delay_and_stop_after_three_attempts():
+    worker_now = datetime.now(UTC)
     incidents, incident, _, _ = await phase7_fixture()
     jobs = MemoryJobs()
     scheduler = InvestigationScheduler(incidents, jobs, Settings())
@@ -582,7 +636,7 @@ async def test_provider_failures_retry_with_delay_and_stop_after_three_attempts(
         InvestigationCreate(),
         principal_id="local-api",
         idempotency_key="retry-path",
-        now=NOW,
+        now=worker_now,
     )
     failures = [
         GenerationResponse(
@@ -595,10 +649,22 @@ async def test_provider_failures_retry_with_delay_and_stop_after_three_attempts(
     provider = DeterministicTestProvider(failures)
     backend = StaticBackend(None)
     assert await run_once(
-        jobs, incidents, backend, provider, Settings(), now=NOW, clock=lambda: NOW
+        jobs,
+        incidents,
+        backend,
+        provider,
+        Settings(),
+        now=worker_now,
+        clock=lambda: worker_now,
     ) == 1
     assert await run_once(
-        jobs, incidents, backend, provider, Settings(), now=NOW, clock=lambda: NOW
+        jobs,
+        incidents,
+        backend,
+        provider,
+        Settings(),
+        now=worker_now,
+        clock=lambda: worker_now,
     ) == 0
     assert await run_once(
         jobs,
@@ -606,8 +672,8 @@ async def test_provider_failures_retry_with_delay_and_stop_after_three_attempts(
         backend,
         provider,
         Settings(),
-        now=NOW + timedelta(seconds=31),
-        clock=lambda: NOW + timedelta(seconds=31),
+        now=worker_now + timedelta(seconds=31),
+        clock=lambda: worker_now + timedelta(seconds=31),
     ) == 1
     assert await run_once(
         jobs,
@@ -615,8 +681,8 @@ async def test_provider_failures_retry_with_delay_and_stop_after_three_attempts(
         backend,
         provider,
         Settings(),
-        now=NOW + timedelta(seconds=62),
-        clock=lambda: NOW + timedelta(seconds=62),
+        now=worker_now + timedelta(seconds=62),
+        clock=lambda: worker_now + timedelta(seconds=62),
     ) == 1
     final = jobs.jobs[job.investigation_id]
     assert final.state == "failed" and final.attempt_count == 3

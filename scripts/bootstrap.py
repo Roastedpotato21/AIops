@@ -517,7 +517,7 @@ async def main() -> None:
             "PUT",
             "/_plugins/_security/api/roles/aiops_api_role",
             json={
-                "cluster_permissions": ["cluster_monitor"],
+                "cluster_permissions": ["cluster_monitor", "indices:data/write/bulk"],
                 "index_permissions": [
                     {
                         "index_patterns": [

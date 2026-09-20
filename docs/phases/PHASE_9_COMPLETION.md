@@ -2,135 +2,147 @@
 
 ## Outcome
 
-**BLOCKED — REGRESSION PASSED, LIVE FULL-STACK ACCEPTANCE INCOMPLETE.** Source hardening and the complete host regression checkpoint pass, but recurring Docker Desktop/BuildKit control-plane stalls prevented rebuilding the affected images and therefore blocked genuine RCF, live Phase 6/7, restart/outage, full end-to-end, performance, and browser acceptance. No live result was fabricated.
+**PASS — LIVE LOCAL-BETA ACCEPTANCE COMPLETE; PHASE 10 READY.** Current targeted images build and run, least-privilege identities are proven live, Phase 6 and Phase 7 container blockers are closed, the persisted React/API flow is browser-verified, and one controlled restart plus one OpenSearch outage preserve logical state. Native RCF positive evidence remains pending solely because all six detectors are still in genuine INIT; no anomaly was fabricated.
 
-## Scope completed
+## Scope and corrections
 
-- Added an idempotent exact-contract Phase 9 normalized-anomaly fixture builder and guarded CLI seeder. It refuses to run unless development fixtures are explicitly enabled and retains `phase6-development-fixture` provenance.
-- Added a credential-free deterministic provider inside the existing Phase 7 provider boundary. It is available only when environment is development, fixtures are enabled, and provider is exactly `deterministic`. It performs one allowlisted `get_incident` read, cites pinned evidence, makes no causal/root claim, executes no action, and labels itself as non-external output.
-- Added focused fixture/provider tests and Compose wiring; no Phase 10 deployment or unrelated product capability was implemented.
-- Corrected frontend container installation to include locked optional native packages required by Rolldown on Alpine. The authoritative release runtime remains digest-pinned Node 24.21.0.
-- Created the production-blocker register, selected the contract-aligned beta retention policy, and specified rollover, migration, authentication, and public exposure gates.
+- Recovered from the prior Docker data-VHD failure without prune, reset, volume deletion, or project rebuild. A recurrence during automatic container restore was captured in `docker-desktop-diagnostics-post-repair-recurrence-20260920.zip`; stopping the project before a restart surge stabilized the engine.
+- Corrected one-shot Python entrypoints to module execution so `app` imports resolve in containers.
+- Added the exact OpenSearch 3.8 bulk transport permission `indices:data/write/bulk` to API and split worker identities while preserving index-level ownership. The broader `cluster_composite_ops` group was explicitly rejected because it also grants alias/reindex actions.
+- Strengthened the live permission checker to create and immediately remove a valid probe in each worker's owned index, then require a representative forbidden write to return 403.
+- Corrected investigation claim searches to request `_seq_no`/`_primary_term` for CAS and hydrated persisted UUID-bearing jobs through strict JSON validation.
+- Corrected two long-running-session tests to use deterministic offsets from a current UTC anchor instead of an expired absolute deadline.
+- Built the current frontend in the authoritative digest-pinned Node 24.21.0 Alpine image using locked optional dependencies.
 
-## Baseline and environment
+No Phase 10 deployment, public edge, authentication, cloud provisioning, remediation, or new product architecture was implemented.
 
-- Started from clean Phase 8 commit `c34b4d2b3b71b7a677e781660bad7abd94dfda7c`; the only pre-existing Phase 9 worktree change was the in-progress frontend Dockerfile correction.
-- Docker Desktop was initially stopped. One clean hidden start recovered Docker Desktop 4.81.0 / Engine 29.6.1. No prune, volume deletion, or `down -v` occurred.
-- Host had approximately 291 GiB free. Docker reported 8 CPUs and 3.99 GiB memory; that memory allocation is adequate for local validation only and is not a production sizing claim.
-- Required local OpenSearch/API/Data Prepper/worker secret variable names were present. Values were never printed. `.env` is ignored and untracked.
-- Compose rendered successfully. Expected published development ports are API `127.0.0.1:8000`, frontend `127.0.0.1:4173`, and optional Dashboards `127.0.0.1:5601`; storage, ingestion, workers, fault controls, and demo services remain private. The running older Dashboards container had no host binding.
+## Docker stability and targeted images
 
-## Failure protocol results
+After recovery, Docker Engine 29.6.1 and BuildKit were responsive. Targeted serial builds passed for API, incident worker, investigation worker, bootstrap, Phase 9 fixture, permission checker, and frontend. The frontend build installed 273 locked packages with zero reported vulnerabilities and transformed 601 modules. The final stack remained stable through targeted builds, one full project stop/start, one OpenSearch stop/start, and final live checks.
 
-1. A parallel multi-image build stalled during export. Classification: Docker/runtime. Diagnosis: Docker Desktop BuildKit/control-plane instability. One targeted Docker Desktop restart recovered the engine; no repeated restarts were performed.
-2. The serial frontend container build failed because Rolldown's Alpine optional binding was absent. Classification: dependency/version portability. Targeted fix: `npm ci --include=optional`. The affected rebuild then stalled inside Docker and was interrupted; source/host build passes, container result remains open.
-3. Phase 9 fixture test collection failed because backend pytest restricts `pythonpath` to `backend/`. Classification: test/environment and module ownership. A root `scripts` package marker did not resolve it. The builder was moved to the correct typed `app.incidents` module and the CLI retained transport only; the affected suite then passed.
-4. The final incident-worker build progressed only through BuildKit definition/metadata loading and then stopped returning output. Classification: Docker/runtime. It was interrupted after bounded polling and not retried.
-5. Headless Edge returned no result within the bounded browser window. Classification: test/environment. The exact helper process was stopped; browser acceptance is not claimed.
+The final running health-checked services were healthy: OpenSearch, Data Prepper, Collector, API, frontend, aggregation worker, incident worker, investigation worker, and all three demo services. Dashboards was running privately. Published ports remained loopback-only at API 8000 and frontend 4173; storage, ingestion, workers, demo services, and Dashboards had no host publication in the active development configuration.
 
-## Regression checkpoint
+## Least-privilege authorization
 
-- `uv run --project backend pytest backend/tests -q`: **66 passed**, two upstream Starlette/httpx/AnyIO deprecation warnings.
-- `uv run --project apps pytest -c apps/pyproject.toml apps/tests -q`: **17 passed**, five upstream OpenTelemetry logging-handler deprecation warnings (run earlier in this Phase 9 checkpoint; apps were not changed afterward).
-- `uv run --project backend ruff check backend/app backend/tests scripts apps`: **passed**.
-- Focused Phase 9 provider/fixture suite: **15 passed**, same two upstream backend warnings.
-- `npm run test -- --run`: **7 passed**.
-- `npm run lint`: **passed**.
-- `npm run typecheck`: **passed**.
-- `npm run build`: **passed**, 601 modules transformed.
-- `docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet`: **passed**.
-- `git diff --check`: **passed**.
+Bootstrap completed idempotently after applying current roles. Final live results for aggregation, incident, and investigation identities were identical:
 
-## Live stack health
+- intended read: HTTP 200;
+- intended document write: HTTP 201;
+- probe cleanup: HTTP 200;
+- representative forbidden write: HTTP 403.
 
-Before the final build stall, bootstrap completed idempotently and `docker compose up -d` created the incident and investigation workers. The live API returned 200 for `/health` and `/ready`; the frontend returned 200 with title `AIOps Operations`. Overview reported OpenSearch healthy but overall state unknown because detector/worker visibility and telemetry freshness were incomplete. Services returned three registered services, with detector-unready or pipeline-stale reasons. Incident count was zero.
+Normal worker operation also persisted buckets, incident/evidence records, worker state, and the investigation report. The legacy broad worker role remains emptied and unmapped.
 
-These observations prove the previously built local API/frontend remained reachable, not that the new Phase 9 worker images ran. A complete current-image container health result is therefore **not passed**.
+## Phase 6 live result
 
-## RCF live anomaly result
+The guarded exact-contract fixture path completed:
 
-**NOT RUN / BLOCKED.** Both Compose-run and direct container inspection attempts stopped returning output during Docker control-plane instability. The last accepted Phase 5 evidence had the six real detectors in native initialization and no positive anomaly. Phase 9 captured no READY transition and no positive grade/confidence/native/normalized ID.
+- normalized anomaly `anomaly_ed14b35d674c046f0754c976fb24a3fb8be315983640ef5249dee861a526c59c`;
+- incident `incident_5d66753c8b4fdb7a84cdd3d745be6e094ad09748acc18eca05b68e6740ee9b59`;
+- evidence bundle `bundle_14d48c515c1d86170da89ef52d968fa6b2c9bc58339affa77eb946b56c4f67ea`;
+- state `open`, severity `medium`, `fixture_source=true`;
+- evidence revision 1, 33 items, 94,720 bytes, quality `complete`;
+- incident detail and evidence APIs: HTTP 200.
 
-## Phase 6 live path
+The UI and stored evidence label the source as a development fixture not produced by live RCF.
 
-**IMPLEMENTED AND UNIT-VALIDATED; LIVE BLOCKED.** The new seeder selects a real finalized, complete, zero-late-span, detector-eligible payment latency bucket and writes one deterministic exact `NormalizedAnomaly`. It requires at least 11 eligible buckets, is disabled by default, and has stable source/anomaly identity. The current image could not be built/run, so no incident or bundle ID is claimed.
+## Phase 7 live result
 
-## Phase 7 live path
+FastAPI returned 202 and queued investigation `inv_2ab43c9632d668dd0b755814e7fe842a7a59158b22dea9bd9eca20547c52ebaf`. The first live claim exposed the CAS/UUID storage defects described above; after the targeted fixes, the expired lease was reclaimed and the job completed on attempt 2.
 
-**IMPLEMENTED AND FOCUSED-VALIDATED; LIVE BLOCKED.** Tests prove all three runtime guards, one allowlisted read-only tool call, pinned evidence citations, fixture limitation, deterministic report timestamp, no root claim, no remediation, and honest `insufficient_evidence`. The current investigation-worker image could not be built/run, so no persisted job/report ID is claimed.
+Final result:
 
-## End-to-end, persistence, outage, and performance
+- state `succeeded`, `fixture_source=true`;
+- one allowlisted read-only incident tool path;
+- supporting evidence `ev_55c39adfeb6866e718e160a720d5011ebcc9b63d91ebb5e5827a150a7554118c`;
+- low qualitative confidence and `completion_status=insufficient_evidence`;
+- no suspected root service, no causal claim, and no executed remediation;
+- explicit limitations that the provider is deterministic/non-external and the incident is not genuine RCF evidence;
+- persisted investigation GET: HTTP 200.
 
-- Full real request → RCF → incident → investigation → dashboard: **blocked** by missing RCF and current-image worker validation.
-- Controlled project restart/persistence: **not run**. The one Docker Desktop recovery incidentally preserved volume-backed telemetry, but exact IDs/cursors/dedup were not compared.
-- Collector/Data Prepper/OpenSearch interruption checks: **not run** after control-plane instability; no additional Docker cycling was attempted.
-- Bounded performance sanity check: **not run** because the current stack could not be controlled reliably. No capacity claim is made.
+No external LLM credential was requested, discovered, printed, or used.
 
-## Browser result
+## Persisted UI result
 
-**BLOCKED.** Live HTTP checks confirmed frontend, Overview API, Services API, and empty Incidents API availability. Frontend component tests cover Overview, Services, service detail, incident detail/evidence/investigation states, and unavailable-state rendering. The bounded headless Edge run hung before producing route evidence; incident detail and investigation could not exist without the blocked live fixture path. No screenshot or console/network pass is claimed.
+Browser automation verified the current React operations UI against the live API and persisted OpenSearch records:
 
-## Security and exposure
+- overview showed one medium open payment incident, visibly marked `FIXTURE`, with investigation available;
+- incident detail showed fixture provenance, chronology, 33 evidence items, and the dependency edge;
+- investigation report showed `SUCCEEDED`, low confidence, insufficient evidence, no established root, and both required limitations;
+- incident, evidence, investigation, overview, and service API requests returned HTTP 200;
+- browser console and page-error collections were empty;
+- screenshot: `phase9-persisted-incident.png`.
 
-- Rendered host mappings are loopback-only and contain no OpenSearch, Data Prepper, OTLP, worker, demo-service, or fault-control publication.
-- OpenSearch security/TLS remains enabled; runtime users are separate from admin. Secret scanning found only `.env.example` placeholders and the local secret generator template. `.env` is ignored and untracked.
-- The browser talks only to FastAPI. No frontend credential or OpenSearch endpoint is embedded.
-- Agent/provider contracts expose seven typed tools and no arbitrary DSL, URL, shell, Docker, GitHub, cloud, remediation, or infrastructure capability. Report citations and action flags remain host-validated.
-- Production deployment is blocked because there is no TLS/auth edge and the shared worker role still grants `indices_all` over mixed indexes. Phase 10 must split and narrow worker identities before public exposure.
+During the controlled OpenSearch outage, the frontend showed `Not ready` with OpenSearch and bootstrap unreachable. The restarted Compose frontend initially exposed a stale Phase 1 image; a targeted current-image rebuild/recreate corrected it, and the containerized page then passed the same persisted markers with no console/page errors.
 
-## Retention, rollover, mapping, and cursors
+## RCF result
 
-- Selected beta retention: raw telemetry/service map 7 days; buckets/native/normalized anomaly results 30 days; resolved incident/evidence/terminal investigations 90 days with reference-aware deletion; active cursor/registry records retained. Enforcement, disk alarms, snapshots, and measured bytes/day remain deployment blockers.
-- Alias-wide logical span dedup and conflict-to-partial behavior are implemented and covered by regression tests. Physical cross-rollover replay was not forced; the staging procedure is recorded in the blocker register.
-- Clean bootstrap maps worker `last_error` as the canonical strict object. The legacy local keyword cannot be changed additively; a snapshot + versioned reindex + alias migration is documented, with no destructive reset.
-- Current UI has bounded first-page behavior and no pagination controls. Unsafe cursors fail closed with `400 invalid_cursor`. HMAC-signed opaque `search_after` cursors are a scale follow-up, not silently accepted tokens.
-- Node 24.21.0 in the digest-pinned frontend image is authoritative. Local Node 22.17.0 is not the release runtime even though host tests/build passed.
+One direct bounded profile inspection succeeded after the broader Phase 5 inspector helper hung and was stopped. All six real detectors returned HTTP 200 with native state `INIT`, initialization `0%`, estimated 32 minutes, 32 needed shingles, and no data in the current window. Detector semantics were not changed and no latency/error anomaly was fabricated. This is the sole reason genuine positive native/normalized IDs remain unavailable.
+
+## Restart and persistence
+
+One controlled Compose project stop/start completed without deleting volumes. Before restart:
+
+- service metrics 1,693; anomalies 201; incidents 1; evidence documents 34; investigations 1; worker-state records 11.
+
+After restart:
+
+- anomalies 201; incidents 1; evidence documents 34; investigations 1; worker-state records 11;
+- exact incident, bundle, and investigation IDs remained readable;
+- service metrics advanced to 1,748 as the aggregation worker resumed catch-up, then continued progressing;
+- no duplicate logical incident, evidence bundle, or investigation appeared.
+
+## OpenSearch outage and recovery
+
+Exactly one OpenSearch-only outage was run:
+
+- `/health` remained 200;
+- `/ready` returned 503 with OpenSearch/bootstrap `unreachable`;
+- `/api/v1/overview` returned 503 `dependency_unavailable`;
+- frontend rendered the unavailable state rather than false health;
+- aggregation stayed alive; incident and investigation workers failed closed and restarted under Compose;
+- after restore, `/ready` and overview returned 200, all workers returned healthy, exact IDs remained readable, and logical counts remained 201 anomalies / 1 incident / 34 evidence / 1 investigation.
+
+The restart-loop behavior of incident/investigation polling during dependency loss is safe but noisy and remains a resilience improvement. Separate Collector/Data Prepper interruption matrices were not repeated under the deadline verification schedule.
+
+## Retention, rollover, mapping, and runtime
+
+- Selected beta retention remains 7 days raw telemetry/service map, 30 days buckets/native/normalized anomalies, and 90 days resolved incidents/evidence/terminal investigations with reference-aware deletion.
+- The installed `raw-span-policy` rolls over at 24 hours / 50 GiB but contains no delete transition. Full 7/30/90 enforcement, disk alerts, and snapshots remain Phase 10 deployment blockers; no risky deletion policy was attached to useful evidence in this pass.
+- Span alias inspection showed four backing indexes and exactly one write index (`otel-v1-apm-span-000004`). Physical cross-rollover duplicate/conflict staging was not forced.
+- Point-in-time sizing: 58,829 spans / 18.5 MiB; 47,957 raw metrics / approximately 21.3 MiB across two daily indexes; 10,445 logs / approximately 2.6 MiB across two daily indexes. This is not a capacity claim.
+- The preserved local `aiops-worker-state-v1.last_error` mapping is still non-indexed keyword. Healthy operation is unblocked, so no destructive migration was performed. Clean bootstrap and the documented versioned reindex/alias migration remain authoritative.
+- Digest-pinned Node 24.21.0 Alpine is the validated release runtime. Local Node 22 is not release evidence, and engine requirements were not weakened.
+
+## Final targeted verification
+
+- Focused backend regression over worker roles, investigations, incidents, config, and health: **34 passed**, two upstream Starlette/httpx/AnyIO deprecation warnings.
+- Focused Ruff over every changed Python file: **passed**.
+- Compose render with both files: **passed**.
+- Current frontend container production build: **passed**.
+- Final live worker permission check: **passed for all three identities**.
+- Final full stack health: **passed**.
+- Final persisted incident API, investigation API, and frontend HTTP checks: **200/200/200**.
+- `git diff --check`: **passed** before report updates and will be repeated before commit.
+
+Previously passed broad Phase 1–8 suites were not rerun because current changes did not invalidate their accepted evidence.
+
+## Remaining production blockers
+
+- Genuine positive native RCF latency/error evidence remains pending while detectors are INIT; allowed not to block Phase 10 start by the resume handoff.
+- Implement and test 7/30/90 retention enforcement, disk alerts, and snapshots before public deployment.
+- Run isolated physical cross-rollover replay/conflict validation before production aggregation claims.
+- Migrate the preserved legacy worker-state mapping before reusing this volume in production.
+- Implement the Phase 10 TLS/auth/rate-limit/public exposure boundary before public deployment.
+- Add signed pagination cursors before beta data exceeds bounded first pages.
+- Run bounded performance/capacity measurement on the intended deployment shape.
+- Improve incident/investigation polling backoff so an OpenSearch outage logs bounded warnings instead of container restart loops.
+- Live external-provider validation remains an explicit credential checkpoint and is not required for the deterministic beta.
 
 ## Phase 10 readiness
 
-**BLOCKED.** Repair Docker/build reliability; complete current-image stack startup, live Phase 6 and Phase 7 paths, persisted end-to-end/UI acceptance, restart validation, and live least-privilege worker authorization checks before beginning Phase 10. Genuine RCF validation may remain pending only if native warm-up is the sole remaining product blocker. Retention enforcement and the TLS/auth edge remain mandatory Phase 10 completion requirements before EC2/public deployment.
+**READY.** Docker is stable, current targeted images build/start, least privilege is proven live, Phase 6 and 7 live paths pass, persisted UI/API passes, restart preserves state, and the OpenSearch outage recovers without duplication. Genuine RCF remains pending only because native initialization has not completed. TLS/auth, retention enforcement, and deployment infrastructure are Phase 10 completion work and must not be omitted before public exposure.
 
 ## Phase boundary
 
 STOP. Do not begin Phase 10 automatically.
-
-## Continuation attempt — 2026-09-20
-
-The authorized continuation did not restart Phase 9 from the beginning. Previously passing regression evidence remained valid.
-
-### Docker diagnosis
-
-- Initial `docker version` and Compose project inspection succeeded. OpenSearch, Data Prepper, Collector, aggregation worker, incident worker, demo services, API, and frontend reported running/healthy; the investigation worker transitioned to healthy during inspection.
-- `docker buildx ls` hung while normal runtime inspection still worked, isolating the first fault to BuildKit/control-plane state.
-- A classic-builder attempt stalled sending the OneDrive workspace context. A running-image inspection then hung, proving broader API degradation.
-- The single authorized `docker desktop restart` completed and restored `docker version`. Inspection then proved the running investigation image was stale and did not contain `DeterministicDevelopmentProvider`.
-- One post-restart classic build transferred the full 24.51 MB context, pulled pinned bases, and installed all 40 locked packages, then stalled indefinitely while committing the dependency layer. It was interrupted after bounded polling.
-- A no-build, read-only source-mounted bootstrap attempt then failed with Docker's own `500 Internal Server Error` on the Linux-engine `/_ping` endpoint. No second restart or repeated build was attempted. The static frontend still returned 200, while the API timed out after the engine failure.
-- The single near-end status revisit also produced no `docker version` output within 30 seconds and was interrupted. The engine was left unmodified for diagnosis; no further Docker action was taken.
-
-Diagnosis: application tests and dependency resolution are healthy; Docker Desktop's Linux-engine/storage/export path becomes unresponsive during image-layer operations, with the OneDrive-backed workspace a likely contributing factor. The required next environment correction is Docker repair or a non-OneDrive local build workspace, not an application workaround.
-
-### Worker permission hardening
-
-- Added separate aggregation, incident, and investigation credentials and Compose wiring. Missing local values were generated into ignored `.env` without disclosure.
-- Added exact role specifications with no cluster permissions and only `read`/`write` index action groups:
-  - aggregation reads native spans and reads/writes service buckets plus its state;
-  - incident reads required telemetry/product inputs and writes anomalies, incidents, evidence, and its state;
-  - investigation reads incident/evidence/telemetry inputs and writes only investigation jobs and derived evidence.
-- Bootstrap now empties and unmaps the legacy broad `aiops_worker_role`, preventing the preserved shared credential from bypassing the split.
-- Added a live permission checker that requires each intended read to return 200 and a representative forbidden write to return 403.
-- Focused result: `4 passed` role-policy tests; config/health plus role tests `9 passed`; compilation and focused Ruff passed; Compose rendered successfully without printing secrets.
-- Live bootstrap and authorization checks remain blocked because Docker failed before the current source could run against OpenSearch. Therefore the production blocker is narrowed but not closed.
-
-### Live acceptance disposition
-
-- Phase 6 fixture path: not run; current incident-worker image could not be built/recreated with the split identity.
-- Phase 7 deterministic path: not run; running image was conclusively stale.
-- UI persisted-record path: not run; no live incident/investigation record was available. Browser automation was not relaunched.
-- RCF inspection: not run after the Docker failure; no positive result is claimed.
-- Restart/persistence: not run because the one Docker Desktop restart was environment recovery, not a controlled project restart with before/after IDs.
-- OpenSearch outage: not run; Docker was not stable enough to safely stop and guarantee restoration of the service.
-
-### Continuation outcome
-
-**BLOCKED.** The permission defect is fixed in source and focused tests, but Docker prevented application of the roles and every required live product check. Phase 10 remains blocked until a stable engine can build/recreate the current workers and the live checks in the production-blocker register pass. TLS/auth remain Phase 10 implementation work and are not, by themselves, a prerequisite for beginning Phase 10.

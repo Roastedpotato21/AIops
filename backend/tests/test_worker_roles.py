@@ -1,5 +1,7 @@
 from app.opensearch.roles import WORKER_ROLES
 
+WRITE_ACTIONS = {"read", "write"}
+
 
 def _permissions(role_name: str) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
@@ -16,21 +18,21 @@ def test_worker_roles_are_separate_and_have_no_administrative_actions():
         "aiops_investigation_worker_role",
     }
     for role in WORKER_ROLES.values():
-        assert role["cluster_permissions"] == []
+        assert role["cluster_permissions"] == ["indices:data/write/bulk"]
         actions = {
             action
             for permission in role["index_permissions"]
             for action in permission["allowed_actions"]
         }
-        assert actions <= {"read", "write"}
+        assert actions <= WRITE_ACTIONS
 
 
 def test_aggregation_worker_can_only_read_spans_and_own_metrics_state():
     permissions = _permissions("aiops_aggregation_worker_role")
     assert permissions == {
         "otel-v1-apm-span*": {"read"},
-        "aiops-service-metrics-v1*": {"read", "write"},
-        "aiops-worker-state-v1": {"read", "write"},
+        "aiops-service-metrics-v1*": WRITE_ACTIONS,
+        "aiops-worker-state-v1": WRITE_ACTIONS,
     }
 
 
@@ -38,8 +40,8 @@ def test_incident_worker_cannot_write_raw_telemetry_or_investigations():
     permissions = _permissions("aiops_incident_worker_role")
     assert permissions["otel-v1-apm-span*"] == {"read"}
     assert permissions["aiops-logs*"] == {"read"}
-    assert permissions["aiops-anomalies-v1*"] == {"read", "write"}
-    assert permissions["aiops-incidents-v1*"] == {"read", "write"}
+    assert permissions["aiops-anomalies-v1*"] == WRITE_ACTIONS
+    assert permissions["aiops-incidents-v1*"] == WRITE_ACTIONS
     assert "aiops-investigations-v1*" not in permissions
 
 

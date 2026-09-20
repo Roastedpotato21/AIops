@@ -2,7 +2,7 @@
 
 ## Outcome
 
-**PARTIAL — IMPLEMENTATION COMPLETE / LIVE CONTAINER VALIDATION BLOCKED.** The deterministic incident engine, bounded evidence collection, recovery policy, persistent worker, strict storage mappings, and incident read APIs are implemented and pass focused tests. The required live OpenSearch fixture path was not run because Docker Desktop did not return service state and the execution safety gate rejected creation of the persistent fixture helper; no fixture or RCF result was fabricated.
+**PASS.** The deterministic incident engine, bounded evidence collection, recovery policy, persistent worker, strict storage mappings, and incident read APIs pass focused tests and a live container path using an explicitly labeled development fixture. No fixture is represented as a genuine RCF result.
 
 ## Scope implemented
 
@@ -24,7 +24,8 @@ No reasoning agent, LLM/provider, investigation jobs, remediation, runbook searc
 - `python -m py_compile scripts/bootstrap.py backend/app/workers/incidents.py`: **passed**.
 - `docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet`: **passed**.
 - Full Phase 1–5 regression: **not run**, per deadline authorization.
-- Incident worker container startup, live bootstrap, live evidence/API retrieval: **not run**. Docker Desktop service-state calls returned no result within repeated 30-second checks.
+- Phase 9 live closure: bootstrap completed idempotently; the incident worker became healthy; incident detail and evidence APIs returned 200.
+- Phase 9 final targeted boundary: **34 passed** across incident, investigation, worker-role, config, and health tests; focused Ruff and Compose render passed.
 
 ## Incident creation and deduplication
 
@@ -52,7 +53,12 @@ All three Phase 0 incident GET endpoints return typed envelopes, bounded pages, 
 
 ## Real RCF or fixture source status
 
-No genuine post-warm-up positive RCF result was available from Phase 5. Unit/integration fixtures use the exact `NormalizedAnomaly` contract and the source index literal `phase6-development-fixture`; resulting incident projections set `fixture_source=true`. A live persistent fixture was not inserted, and no test fixture is claimed as a real detector result.
+No genuine post-warm-up positive RCF result was available. The guarded live fixture used the exact `NormalizedAnomaly` contract and source index `phase6-development-fixture`; the resulting projection retained `fixture_source=true` throughout storage, API, and UI.
+
+- Normalized anomaly: `anomaly_ed14b35d674c046f0754c976fb24a3fb8be315983640ef5249dee861a526c59c`.
+- Incident: `incident_5d66753c8b4fdb7a84cdd3d745be6e094ad09748acc18eca05b68e6740ee9b59`, state `open`, severity `medium`.
+- Evidence bundle: `bundle_14d48c515c1d86170da89ef52d968fa6b2c9bc58339affa77eb946b56c4f67ea`, revision 1, 33 items, 94,720 bytes, quality `complete`.
+- Incident detail and evidence retrieval both returned HTTP 200.
 
 ## Contract clarifications
 
@@ -60,7 +66,7 @@ The Phase 6 handoff requires fixture incidents to remain visibly distinct from g
 
 ## Remaining blocker
 
-Before marking Phase 6 fully PASS, run bootstrap against the live volume, start `incident-worker`, and complete one explicitly labeled normalized-anomaly fixture or genuine RCF-positive path through incident, evidence, and API retrieval. Docker availability and the rejected persistent-helper write prevented that check in this pass. Signed continuation cursors remain a later API-hardening item; current requests with a cursor fail closed.
+The Phase 6 live-container blocker is closed. Signed continuation cursors remain a scale-hardening item; current requests with a cursor fail closed. Genuine native RCF positive evidence remains a separate Phase 5/9 live-validation item and was not fabricated.
 
 ## Phase boundary
 

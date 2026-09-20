@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,7 +23,7 @@ class InvestigationRepository:
             if document is None:
                 return None
             return (
-                InvestigationJob.model_validate(document["_source"]),
+                _job_from_json(document["_source"]),
                 int(document["_seq_no"]),
                 int(document["_primary_term"]),
             )
@@ -73,6 +74,7 @@ class InvestigationRepository:
         hits = await self._search(
             {
                 "size": 10,
+                "seq_no_primary_term": True,
                 "query": {
                     "bool": {
                         "should": [
@@ -109,7 +111,7 @@ class InvestigationRepository:
         )
         for hit in hits:
             try:
-                job = InvestigationJob.model_validate(hit["_source"])
+                job = _job_from_json(hit["_source"])
                 seq_no = int(hit["_seq_no"])
                 primary_term = int(hit["_primary_term"])
             except (KeyError, TypeError, ValueError, ValidationError):
@@ -218,9 +220,13 @@ class InvestigationRepository:
     @staticmethod
     def _models(hits: list[Mapping[str, Any]]) -> list[InvestigationJob]:
         try:
-            return [InvestigationJob.model_validate(hit["_source"]) for hit in hits]
-        except (KeyError, ValidationError) as exc:
+            return [_job_from_json(hit["_source"]) for hit in hits]
+        except (KeyError, TypeError, ValidationError) as exc:
             raise TelemetryRepositoryError("unavailable", retryable=False) from exc
+
+
+def _job_from_json(source: object) -> InvestigationJob:
+    return InvestigationJob.model_validate_json(json.dumps(source))
 
 
 def _retry_delay(attempt_count: int) -> timedelta:

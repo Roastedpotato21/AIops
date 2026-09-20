@@ -35,7 +35,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: ["python", "scripts/bootstrap.py"]
+    command: ["python", "-m", "scripts.bootstrap"]
     environment:
       OPENSEARCH_URL: https://opensearch:9200
       OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}
@@ -62,7 +62,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: ["python", "scripts/seed_phase9_fixture.py"]
+    command: ["python", "-m", "scripts.seed_phase9_fixture"]
     environment:
       OPENSEARCH_URL: https://opensearch:9200
       OPENSEARCH_ADMIN_USERNAME: ${OPENSEARCH_ADMIN_USERNAME:-admin}

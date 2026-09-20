@@ -1,7 +1,7 @@
 """Least-privilege OpenSearch role specifications for persistent workers."""
 
 AGGREGATION_WORKER_ROLE = {
-    "cluster_permissions": [],
+    "cluster_permissions": ["indices:data/write/bulk"],
     "index_permissions": [
         {
             "index_patterns": ["otel-v1-apm-span*"],
@@ -19,7 +19,7 @@ AGGREGATION_WORKER_ROLE = {
 }
 
 INCIDENT_WORKER_ROLE = {
-    "cluster_permissions": [],
+    "cluster_permissions": ["indices:data/write/bulk"],
     "index_permissions": [
         {
             "index_patterns": [
@@ -47,7 +47,7 @@ INCIDENT_WORKER_ROLE = {
 }
 
 INVESTIGATION_WORKER_ROLE = {
-    "cluster_permissions": [],
+    "cluster_permissions": ["indices:data/write/bulk"],
     "index_permissions": [
         {
             "index_patterns": [
