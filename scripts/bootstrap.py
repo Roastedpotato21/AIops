@@ -7,14 +7,21 @@ from pathlib import Path
 import httpx
 
 BASE = os.environ.get("OPENSEARCH_URL", "https://opensearch:9200")
-ADMIN = (os.environ["OPENSEARCH_ADMIN_USERNAME"], os.environ["OPENSEARCH_ADMIN_PASSWORD"])
+ADMIN = (
+    os.environ["OPENSEARCH_ADMIN_USERNAME"],
+    os.environ["OPENSEARCH_ADMIN_PASSWORD"],
+)
 SPAN_TEMPLATE = Path("infra/opensearch/otel-v1-apm-span-index-standard-template.json")
 
 
-async def request(client: httpx.AsyncClient, method: str, path: str, **kwargs) -> httpx.Response:
+async def request(
+    client: httpx.AsyncClient, method: str, path: str, **kwargs
+) -> httpx.Response:
     response = await client.request(method, path, **kwargs)
     if response.status_code not in (200, 201):
-        raise RuntimeError(f"Bootstrap request {method} {path} failed with {response.status_code}")
+        raise RuntimeError(
+            f"Bootstrap request {method} {path} failed with {response.status_code}"
+        )
     return response
 
 
@@ -72,7 +79,10 @@ async def ensure_product_index(
             "PUT",
             f"/{index}",
             json={
-                "settings": {"index.number_of_shards": 1, "index.number_of_replicas": 0},
+                "settings": {
+                    "index.number_of_shards": 1,
+                    "index.number_of_replicas": 0,
+                },
                 "mappings": {"dynamic": "strict", "properties": mappings},
                 "aliases": {alias: {"is_write_index": True}},
             },
@@ -82,7 +92,11 @@ async def ensure_product_index(
             client,
             "POST",
             "/_aliases",
-            json={"actions": [{"add": {"index": index, "alias": alias, "is_write_index": True}}]},
+            json={
+                "actions": [
+                    {"add": {"index": index, "alias": alias, "is_write_index": True}}
+                ]
+            },
         )
 
 
@@ -139,8 +153,16 @@ ANOMALY_MAPPINGS = {
     "feature": {"type": "keyword"},
     "feature_value": {"type": "double"},
     "input_bucket_id": {"type": "keyword"},
-    "detector_window": {"type": "object", "dynamic": "strict", "properties": TIME_RANGE_MAPPING},
-    "affected_window": {"type": "object", "dynamic": "strict", "properties": TIME_RANGE_MAPPING},
+    "detector_window": {
+        "type": "object",
+        "dynamic": "strict",
+        "properties": TIME_RANGE_MAPPING,
+    },
+    "affected_window": {
+        "type": "object",
+        "dynamic": "strict",
+        "properties": TIME_RANGE_MAPPING,
+    },
     "execution_started_at": {"type": "date"},
     "execution_ended_at": {"type": "date"},
     "anomaly_grade": {"type": "double"},
@@ -150,7 +172,10 @@ ANOMALY_MAPPINGS = {
     "source": {
         "type": "object",
         "dynamic": "strict",
-        "properties": {"index": {"type": "keyword"}, "document_id": {"type": "keyword"}},
+        "properties": {
+            "index": {"type": "keyword"},
+            "document_id": {"type": "keyword"},
+        },
     },
     "observed_at": {"type": "date"},
     "processing_state": {"type": "keyword"},
@@ -173,6 +198,83 @@ ANOMALY_MAPPINGS = {
     },
 }
 
+INCIDENT_MAPPINGS = {
+    "schema_version": {"type": "keyword"},
+    "incident_id": {"type": "keyword"},
+    "primary_service": {
+        "type": "object",
+        "dynamic": "strict",
+        "properties": SERVICE_MAPPING,
+    },
+    "affected_services": {
+        "type": "nested",
+        "dynamic": "strict",
+        "properties": SERVICE_MAPPING,
+    },
+    "feature": {"type": "keyword"},
+    "state": {"type": "keyword"},
+    "severity": {"type": "keyword"},
+    "peak_severity": {"type": "keyword"},
+    "severity_reason": {"type": "keyword", "index": False},
+    "severity_bucket_ids": {"type": "keyword"},
+    "opened_by_anomaly_id": {"type": "keyword"},
+    "anomaly_count": {"type": "integer"},
+    "recent_anomaly_ids": {"type": "keyword"},
+    "related_incidents": {
+        "type": "nested",
+        "dynamic": "strict",
+        "properties": {
+            "incident_id": {"type": "keyword"},
+            "reason": {"type": "keyword"},
+            "evidence_ids": {"type": "keyword"},
+            "linked_at": {"type": "date"},
+        },
+    },
+    "first_affected_at": {"type": "date"},
+    "last_affected_at": {"type": "date"},
+    "detected_at": {"type": "date"},
+    "updated_at": {"type": "date"},
+    "recovering_since": {"type": "date"},
+    "resolved_at": {"type": "date"},
+    "recovery_baseline": {"type": "object", "enabled": False},
+    "healthy_bucket_streak": {"type": "integer"},
+    "last_recovery_bucket_end": {"type": "date"},
+    "suspected_root_service": {"type": "object", "enabled": False},
+    "suspected_root_evidence_ids": {"type": "keyword"},
+    "latest_evidence_bundle_id": {"type": "keyword"},
+    "evidence_version": {"type": "integer"},
+    "evidence_status": {"type": "keyword"},
+    "latest_investigation_id": {"type": "keyword"},
+    "policy_version": {"type": "keyword"},
+    "fixture_source": {"type": "boolean"},
+}
+
+EVIDENCE_MAPPINGS = {
+    "schema_version": {"type": "keyword"},
+    "record_kind": {"type": "keyword"},
+    "owner_incident_id": {"type": "keyword"},
+    "evidence_id": {"type": "keyword"},
+    "evidence_type": {"type": "keyword"},
+    "source": {"type": "object", "enabled": False},
+    "service": {"type": "object", "dynamic": "strict", "properties": SERVICE_MAPPING},
+    "window": {"type": "object", "dynamic": "strict", "properties": TIME_RANGE_MAPPING},
+    "summary": {"type": "text"},
+    "quality_status": {"type": "keyword"},
+    "quality_reasons": {"type": "keyword"},
+    "redaction_status": {"type": "keyword"},
+    "redaction_version": {"type": "keyword"},
+    "provenance": {"type": "object", "enabled": False},
+    "snapshot": {"type": "object", "enabled": False},
+    "content_sha256": {"type": "keyword"},
+    "stored_bytes": {"type": "integer"},
+    "created_at": {"type": "date"},
+    "bundle_id": {"type": "keyword"},
+    "incident_id": {"type": "keyword"},
+    "version": {"type": "integer"},
+    "evidence_ids": {"type": "keyword"},
+    "total_bytes": {"type": "integer"},
+}
+
 WORKER_STATE_ADDITIONS = {
     "worker_state_id": {"type": "keyword"},
     "role": {"type": "keyword"},
@@ -185,6 +287,8 @@ WORKER_STATE_ADDITIONS = {
             "service_id": {"type": "keyword"},
             "finalized_through": {"type": "date"},
             "aggregation_version": {"type": "keyword"},
+            "execution_ended_at": {"type": "date"},
+            "anomaly_id": {"type": "keyword"},
         },
     },
     "owner_id": {"type": "keyword"},
@@ -210,7 +314,9 @@ WORKER_STATE_ADDITIONS = {
 
 
 async def main() -> None:
-    async with httpx.AsyncClient(base_url=BASE, auth=ADMIN, verify=False, timeout=10.0) as client:
+    async with httpx.AsyncClient(
+        base_url=BASE, auth=ADMIN, verify=False, timeout=10.0
+    ) as client:
         span_template = json.loads(SPAN_TEMPLATE.read_text(encoding="utf-8"))
         span_template["index_patterns"] = ["otel-v1-apm-span-*"]
         span_template["settings"] = {
@@ -233,12 +339,16 @@ async def main() -> None:
                 .get("is_write_index")
             ]
             if len(write_indices) != 1:
-                raise RuntimeError("Native trace alias must have exactly one write index")
+                raise RuntimeError(
+                    "Native trace alias must have exactly one write index"
+                )
             write_index = write_indices[0]
             mapping = (await request(client, "GET", f"/{write_index}/_mapping")).json()
             properties = mapping[write_index].get("mappings", {}).get("properties", {})
             if "resource" not in properties:
-                count = (await request(client, "GET", f"/{write_index}/_count")).json()["count"]
+                count = (await request(client, "GET", f"/{write_index}/_count")).json()[
+                    "count"
+                ]
                 if count:
                     raise RuntimeError(
                         "Incompatible native trace mapping contains data; refusing automatic rollover"
@@ -272,6 +382,18 @@ async def main() -> None:
             index="aiops-anomalies-v1-000001",
             alias="aiops-anomalies-v1",
             mappings=ANOMALY_MAPPINGS,
+        )
+        await ensure_product_index(
+            client,
+            index="aiops-incidents-v1-000001",
+            alias="aiops-incidents-v1",
+            mappings=INCIDENT_MAPPINGS,
+        )
+        await ensure_product_index(
+            client,
+            index="aiops-evidence-v1-000001",
+            alias="aiops-evidence-v1",
+            mappings=EVIDENCE_MAPPINGS,
         )
         await request(
             client,
@@ -340,6 +462,8 @@ async def main() -> None:
                             "aiops-worker-state-v1",
                             "aiops-service-metrics-v1*",
                             "aiops-anomalies-v1*",
+                            "aiops-incidents-v1*",
+                            "aiops-evidence-v1*",
                             "opensearch-ad-plugin-result-aiops-v1*",
                             "aiops-logs*",
                             "aiops-metrics-raw*",
@@ -373,6 +497,8 @@ async def main() -> None:
                             "otel-v1-apm-span*",
                             "aiops-service-metrics-v1*",
                             "aiops-anomalies-v1*",
+                            "aiops-incidents-v1*",
+                            "aiops-evidence-v1*",
                             "aiops-worker-state-v1",
                             "opensearch-ad-plugin-result-aiops-v1*",
                         ],
@@ -408,7 +534,10 @@ async def main() -> None:
             "PUT",
             "/aiops-worker-state-v1",
             json={
-                "settings": {"index.number_of_shards": 1, "index.number_of_replicas": 0},
+                "settings": {
+                    "index.number_of_shards": 1,
+                    "index.number_of_replicas": 0,
+                },
                 "mappings": {
                     "dynamic": "strict",
                     "properties": {
@@ -423,12 +552,11 @@ async def main() -> None:
                 },
             },
         ) if (await client.head("/aiops-worker-state-v1")).status_code == 404 else None
-        worker_mapping = (
-            await request(client, "GET", "/aiops-worker-state-v1/_mapping")
-        )
+        worker_mapping = await request(client, "GET", "/aiops-worker-state-v1/_mapping")
         additions = dict(WORKER_STATE_ADDITIONS)
         current_properties = (
-            worker_mapping.json().get("aiops-worker-state-v1", {})
+            worker_mapping.json()
+            .get("aiops-worker-state-v1", {})
             .get("mappings", {})
             .get("properties", {})
         )

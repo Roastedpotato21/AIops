@@ -1,1 +1,1 @@
-"""Phase 6 incident ownership boundary; no Phase 1 implementation."""
+"""Deterministic incident correlation, evidence, and recovery policy."""
